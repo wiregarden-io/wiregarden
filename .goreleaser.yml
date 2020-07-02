@@ -1,0 +1,30 @@
+before:
+  hooks:
+    - go mod download
+builds:
+- env:
+  - CGO_ENABLED=0
+  id: wiregarden
+  main: ./main.go
+  binary: wiregarden
+  goos:
+  - linux
+  goarch:
+  - amd64
+  - arm
+  - arm64
+archives:
+- format: binary
+release:
+  extra_files:
+  - glob: ./install.bash
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
