@@ -8,7 +8,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-package client
+// Package api provides for communication with the wiregarden.io API.
+package api
 
 import (
 	"bytes"
@@ -21,8 +22,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-
-	"github.com/wiregarden-io/wiregarden/types"
 )
 
 const (
@@ -86,15 +85,17 @@ func (c *Client) Response(resp *http.Response, v interface{}) error {
 	return nil
 }
 
-func (c *Client) JoinDevice(ctx context.Context, joinReq *types.JoinDeviceRequest) (*types.JoinDeviceResponse, error) {
+func (c *Client) JoinDevice(ctx context.Context, joinReq *JoinDeviceRequest) (*JoinDeviceResponse, error) {
 	resp, err := c.Request(ctx, "POST", "/v1/device", &joinReq)
 	if err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
 	if resp.StatusCode == http.StatusConflict {
+		// TODO: need to make this idempotent because we don't have the device
+		// token if we need to retry...
 		return nil, errors.WithStack(ErrDeviceAlreadyJoined)
 	}
-	var joinResp types.JoinDeviceResponse
+	var joinResp JoinDeviceResponse
 	err = c.Response(resp, &joinResp)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -102,12 +103,12 @@ func (c *Client) JoinDevice(ctx context.Context, joinReq *types.JoinDeviceReques
 	return &joinResp, nil
 }
 
-func (c *Client) RefreshDevice(ctx context.Context, refreshReq *types.RefreshDeviceRequest) (*types.JoinDeviceResponse, error) {
+func (c *Client) RefreshDevice(ctx context.Context, refreshReq *RefreshDeviceRequest) (*JoinDeviceResponse, error) {
 	resp, err := c.Request(ctx, "PUT", "/v1/device", refreshReq)
 	if err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
-	var joinResp types.JoinDeviceResponse
+	var joinResp JoinDeviceResponse
 	err = c.Response(resp, &joinResp)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -145,12 +146,12 @@ func (c *Client) Whoami(ctx context.Context) (string, error) {
 
 var ErrNotFound = errors.Errorf("not found")
 
-func (c *Client) GetSubscriptionToken(ctx context.Context, plan string) (*types.GetSubscriptionTokenResponse, error) {
+func (c *Client) GetSubscriptionToken(ctx context.Context, plan string) (*GetSubscriptionTokenResponse, error) {
 	resp, err := c.Request(ctx, "PUT", "/v1/subscription/"+plan+"/token", nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
-	var subTokenResp types.GetSubscriptionTokenResponse
+	var subTokenResp GetSubscriptionTokenResponse
 	err = c.Response(resp, &subTokenResp)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to decode response")

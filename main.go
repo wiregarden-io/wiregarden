@@ -13,9 +13,9 @@ package main
 import (
 	"os"
 
-	"github.com/wiregarden-io/wiregarden/app"
+	"github.com/wiregarden-io/wiregarden/cli"
 )
 
 func main() {
-	app.Run(nil, os.Args)
+	cli.Run(nil, os.Args)
 }
