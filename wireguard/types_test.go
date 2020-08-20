@@ -8,7 +8,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-package types_test
+package wireguard_test
 
 import (
 	"encoding/json"
@@ -17,33 +17,33 @@ import (
 
 	qt "github.com/frankban/quicktest"
 
-	"github.com/wiregarden-io/wiregarden/types"
+	wg "github.com/wiregarden-io/wiregarden/wireguard"
 )
 
 func TestInvalidKey(t *testing.T) {
 	c := qt.New(t)
-	_, err := types.ParseKey("MAo=")
+	_, err := wg.ParseKey("MAo=")
 	c.Assert(err, qt.ErrorMatches, ".*invalid key length 2.*")
 }
 
 func TestInvalidAddress(t *testing.T) {
 	c := qt.New(t)
-	var addr types.Address
+	var addr wg.Address
 	err := addr.UnmarshalText([]byte("nope"))
 	c.Assert(err, qt.ErrorMatches, ".*nope.*")
 }
 
 func TestMarshalAddress(t *testing.T) {
 	c := qt.New(t)
-	addr, err := types.ParseAddress("192.168.42.5/24")
+	addr, err := wg.ParseAddress("192.168.42.5/24")
 	c.Assert(err, qt.IsNil)
 	buf, err := json.Marshal(addr)
 	c.Assert(err, qt.IsNil)
 	c.Assert(string(buf), qt.Equals, `"192.168.42.5/24"`)
 
 	doc := struct {
-		Addr types.Address `json:"addr"`
-		Port int           `json:"port"`
+		Addr wg.Address `json:"addr"`
+		Port int        `json:"port"`
 	}{
 		Addr: *addr,
 		Port: 31337,
@@ -150,13 +150,13 @@ PersistentKeepalive = 20
 `)
 }
 
-func newSimpleConfig(c *qt.C) *types.InterfaceConfig {
-	cfg := &types.InterfaceConfig{
+func newSimpleConfig(c *qt.C) *wg.InterfaceConfig {
+	cfg := &wg.InterfaceConfig{
 		Name:       "guillermo",
 		Address:    assertNewAddress(c, "192.168.0.1/24"),
 		PrivateKey: assertGenerateKey(c),
 		ListenPort: 31313,
-		Peers: []types.PeerConfig{{
+		Peers: []wg.PeerConfig{{
 			Name:                "nandor",
 			PublicKey:           assertGenerateKey(c).PublicKey(),
 			Endpoint:            "nandor.wiregarden.io:31313",
@@ -166,23 +166,23 @@ func newSimpleConfig(c *qt.C) *types.InterfaceConfig {
 	return cfg
 }
 
-func assertGenerateKey(c *qt.C) types.Key {
-	k, err := types.GenerateKey()
+func assertGenerateKey(c *qt.C) wg.Key {
+	k, err := wg.GenerateKey()
 	c.Assert(err, qt.IsNil)
 	return k
 }
 
-func assertNewAddress(c *qt.C, s string) types.Address {
-	addr, err := types.ParseAddress(s)
+func assertNewAddress(c *qt.C, s string) wg.Address {
+	addr, err := wg.ParseAddress(s)
 	c.Assert(err, qt.IsNil)
 	return *addr
 }
 
-func newCompleteConfig(c *qt.C) *types.InterfaceConfig {
+func newCompleteConfig(c *qt.C) *wg.InterfaceConfig {
 	peerKey1 := assertGenerateKey(c)
 	peerKey2 := assertGenerateKey(c)
 
-	cfg := &types.InterfaceConfig{
+	cfg := &wg.InterfaceConfig{
 		Name:       "laszlo",
 		Address:    assertNewAddress(c, "10.11.12.13/8"),
 		ListenPort: 31313,
@@ -194,10 +194,10 @@ func newCompleteConfig(c *qt.C) *types.InterfaceConfig {
 		PreDown:    "echo predown",
 		PostUp:     "echo postup",
 		PostDown:   "echo postdown",
-		Peers: []types.PeerConfig{{
+		Peers: []wg.PeerConfig{{
 			Name:     "nadja",
 			Endpoint: "nadja.wiregarden.io:31314",
-			AllowedIPs: []types.Address{
+			AllowedIPs: []wg.Address{
 				assertNewAddress(c, "0.0.0.0/0"),
 			},
 			PublicKey:           peerKey1.PublicKey(),
@@ -205,7 +205,7 @@ func newCompleteConfig(c *qt.C) *types.InterfaceConfig {
 		}, {
 			Name:     "colin",
 			Endpoint: "colin.wiregarden.io:31315",
-			AllowedIPs: []types.Address{
+			AllowedIPs: []wg.Address{
 				assertNewAddress(c, "123.45.67.89/32"),
 			},
 			PublicKey:           peerKey2.PublicKey(),

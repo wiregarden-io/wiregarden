@@ -8,13 +8,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-package types
+package api
 
 import (
 	"net"
 	"time"
 
 	"github.com/pkg/errors"
+
+	"github.com/wiregarden-io/wiregarden/wireguard"
 )
 
 type ListSubscriptionsResponse struct {
@@ -49,11 +51,11 @@ type JoinDeviceRequest struct {
 	// App-specific machine ID, protecting actual machine ID.
 	MachineId []byte `json:"machineId"`
 	// Public key of this device.
-	Key Key `json:"key"`
+	Key wireguard.Key `json:"key"`
 	// Public endpoint where this device can be reached, if possible.
 	Endpoint string `json:"endpoint,omitempty"`
 	// Available address on this device. Only used if starting a new network.
-	AvailableAddr Address `json:"availableAddr,omitempty"`
+	AvailableAddr wireguard.Address `json:"availableAddr,omitempty"`
 	// Available port on this device.
 	AvailablePort int `json:"availablePort,omitempty"`
 }
@@ -85,24 +87,24 @@ type JoinDeviceResponse struct {
 }
 
 type Device struct {
-	Id        string  `json:"id"`
-	Name      string  `json:"name"`
-	Endpoint  string  `json:"endpoint"`
-	Addr      Address `json:"addr"`
-	PublicKey Key     `json:"publicKey"`
+	Id        string            `json:"id"`
+	Name      string            `json:"name"`
+	Endpoint  string            `json:"endpoint"`
+	Addr      wireguard.Address `json:"addr"`
+	PublicKey wireguard.Key     `json:"publicKey"`
 }
 
 type Network struct {
-	Id   string  `json:"id"`
-	Name string  `json:"name"`
-	CIDR Address `json:"address"`
+	Id   string            `json:"id"`
+	Name string            `json:"name"`
+	CIDR wireguard.Address `json:"address"`
 }
 
 type RefreshDeviceRequest struct {
 	// Assigned logical device name
 	Name string `json:"name,omitempty"`
 	// Public key of this device.
-	Key Key `json:"key,omitempty"`
+	Key wireguard.Key `json:"key,omitempty"`
 	// Public endpoint where this device can be reached, if possible.
 	Endpoint string `json:"endpoint,omitempty"`
 }

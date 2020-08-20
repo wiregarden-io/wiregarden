@@ -8,7 +8,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-package types
+// Package wireguard models wireguard device configuration.
+package wireguard
 
 import (
 	"encoding/base64"
