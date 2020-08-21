@@ -1,3 +1,13 @@
+// Copyright 2020 Cmars Technologies LLC.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 // Package store defines the agent storage backend.
 package store
 
@@ -58,7 +68,7 @@ create table if not exists peer (
 	foreign key(iface_id) references iface(id)
 );
 
-create table iface_log (
+create table if not exists iface_log (
 	id integer primary key autoincrement,
 	ts integer,
 	iface_id integer not null,

@@ -1,3 +1,13 @@
+// Copyright 2020 Cmars Technologies LLC.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 package agent_test
 
 import (
@@ -14,7 +24,6 @@ import (
 
 func TestJoinApply(t *testing.T) {
 	c := qt.New(t)
-	k := generateKey(c)
 	a, st := agent.NewTestAgent(c, &mockClient{
 		joinResponse: &api.JoinDeviceResponse{
 			Network: api.Network{
@@ -23,10 +32,9 @@ func TestJoinApply(t *testing.T) {
 				CIDR: parseAddress(c, "1.2.3.0/24"),
 			},
 			Device: api.Device{
-				Id:        "test-device-id",
-				Name:      "test-device",
-				Addr:      parseAddress(c, "1.2.3.4/24"),
-				PublicKey: k.PublicKey(),
+				Id:   "test-device-id",
+				Name: "test-device",
+				Addr: parseAddress(c, "1.2.3.4/24"),
 			},
 			Peers: []api.Device{},
 			Token: []byte("device-token"),
@@ -47,9 +55,11 @@ func TestJoinApply(t *testing.T) {
 			Id:        "test-device-id",
 			Name:      "test-device",
 			Addr:      parseAddress(c, "1.2.3.4/24"),
-			PublicKey: k.PublicKey(),
+			PublicKey: iface.Device.PublicKey, // not tested
 		},
 		Peers:       []api.Device{},
+		ListenPort:  iface.ListenPort, // not tested
+		Key:         iface.Key,        // not tested
 		DeviceToken: []byte("device-token"),
 	})
 	lastLog, err := st.LastLogByDevice("test-device", "test-net")
@@ -122,16 +132,7 @@ func TestJoinRefreshDepart(t *testing.T) {
 	lastLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
 
-	// Cannot refresh until pending operation has been applied
-	_, err = a.RefreshDevice(ctx, "test-device", "test-net", "")
-	c.Assert(err, qt.ErrorMatches, `.*interface state has not been applied.*`)
-	// No change in state.
-	lastLog2, err := st.LastLogByDevice("test-device", "test-net")
-	c.Assert(lastLog2, qt.DeepEquals, lastLog)
-
-	// Apply pending changes, now refresh succeeds.
-	err = a.ApplyInterfaceChanges(iface)
-	c.Assert(err, qt.IsNil)
+	// Refresh will apply pending operations
 	iface2, err := a.RefreshDevice(ctx, "test-device", "test-net", "")
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Id, qt.Equals, iface2.Id)

@@ -1,3 +1,13 @@
+// Copyright 2020 Cmars Technologies LLC.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 package agent
 
 import (
@@ -54,6 +64,9 @@ func New(dataDir, apiUrl string) (*Agent, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
 	st, err := store.New(p.StorePath, p.StoreKey)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -68,10 +81,18 @@ func New(dataDir, apiUrl string) (*Agent, error) {
 	return a, nil
 }
 
+const defaultDataDir = "/var/lib/wiregarden"
+
 func defaultParams(dataDir, apiUrl string) (Params, error) {
+	if dataDir == "" {
+		dataDir = defaultDataDir
+	}
+	err := checkDataDir(dataDir)
+	if err != nil {
+		return Params{}, errors.WithStack(err)
+	}
 	storePath := filepath.Join(dataDir, "db")
 	var storeKey store.Key
-	var err error
 	if storeKeyEnv := os.Getenv("WIREGARDEN_STORE_KEY"); storeKeyEnv != "" {
 		buf, err := base64.StdEncoding.DecodeString(storeKeyEnv)
 		if err != nil {
@@ -93,6 +114,21 @@ func defaultParams(dataDir, apiUrl string) (Params, error) {
 		StorePath: storePath,
 		StoreKey:  storeKey,
 	}, nil
+}
+
+func checkDataDir(dataDir string) error {
+	err := os.MkdirAll(dataDir, 0700)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create data directory %q", dataDir)
+	}
+	check := dataDir + "/.check"
+	f, err := os.Create(check)
+	if err != nil {
+		return errors.Wrapf(err, "cannot write to data directory %q", dataDir)
+	}
+	defer f.Close()
+	defer os.Remove(check)
+	return nil
 }
 
 func ensureStoreKey(keyPath string) (store.Key, error) {
@@ -192,6 +228,8 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 	}
 
 	var iface store.Interface
+	iface.ListenPort = listenPort
+	iface.Key = key
 	a.ifaceJoinDeviceResponse(&iface, joinResp)
 	err = a.st.WithLog(&iface, func(tx *sql.Tx, lastLog *store.InterfaceLog) error {
 		if lastLog != nil {
@@ -226,6 +264,18 @@ func (a *Agent) ifaceJoinDeviceResponse(iface *store.Interface, joinResp *api.Jo
 }
 
 func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endpoint string) (*store.Interface, error) {
+	var err error
+	if deviceName == "" {
+		deviceName, err = os.Hostname()
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot determine hostname, node name is required")
+		}
+	}
+
+	if networkName == "" {
+		networkName = "default"
+	}
+
 	iface, err := a.st.InterfaceByDevice(deviceName, networkName)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -233,6 +283,17 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 	lastLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
 		return nil, errors.WithStack(err)
+	}
+	// If there is an unapplied operation pending, let's try to apply it now.
+	if lastLog.Dirty {
+		err = a.ApplyInterfaceChanges(iface)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		lastLog, err = a.st.LastLogByDevice(deviceName, networkName)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 	err = a.allowOperation(lastLog, store.OpRefreshDevice)
 	if err != nil {
@@ -242,6 +303,9 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 	joinResp, err := a.api.RefreshDevice(WithToken(ctx, iface.DeviceToken), &api.RefreshDeviceRequest{
 		Endpoint: endpoint,
 	})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
 	a.ifaceJoinDeviceResponse(iface, joinResp)
 	err = a.st.WithLog(iface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
 		if *lastLog != *currentLastLog {
@@ -297,6 +361,18 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 }
 
 func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string) (*store.Interface, error) {
+	var err error
+	if deviceName == "" {
+		deviceName, err = os.Hostname()
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot determine hostname, node name is required")
+		}
+	}
+
+	if networkName == "" {
+		networkName = "default"
+	}
+
 	iface, err := a.st.InterfaceByDevice(deviceName, networkName)
 	if err != nil {
 		return nil, errors.WithStack(err)
