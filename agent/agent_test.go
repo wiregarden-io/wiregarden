@@ -35,6 +35,8 @@ func TestJoinApply(t *testing.T) {
 				Id:   "test-device-id",
 				Name: "test-device",
 				Addr: parseAddress(c, "1.2.3.4/24"),
+				// throwaway key that we'll ignore when comparing expected interface below
+				PublicKey: generateKey(c).PublicKey(),
 			},
 			Peers: []api.Device{},
 			Token: []byte("device-token"),
@@ -62,27 +64,27 @@ func TestJoinApply(t *testing.T) {
 		Key:         iface.Key,        // not tested
 		DeviceToken: []byte("device-token"),
 	})
-	lastLog, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLog.State, qt.Equals, store.StateInterfaceJoined)
-	c.Assert(lastLog.Operation, qt.Equals, store.OpJoinDevice)
-	c.Assert(lastLog.Dirty, qt.Equals, true)
+	c.Assert(ifaceLog.Log.State, qt.Equals, store.StateInterfaceJoined)
+	c.Assert(ifaceLog.Log.Operation, qt.Equals, store.OpJoinDevice)
+	c.Assert(ifaceLog.Log.Dirty, qt.Equals, true)
 
 	err = a.ApplyInterfaceChanges(iface)
 	c.Assert(err, qt.IsNil)
-	lastLog, err = st.LastLogByDevice("test-device", "test-net")
+	ifaceLog, err = st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLog.State, qt.Equals, store.StateInterfaceUp)
-	c.Assert(lastLog.Operation, qt.Equals, store.OpJoinDevice)
-	c.Assert(lastLog.Dirty, qt.Equals, false)
+	c.Assert(ifaceLog.Log.State, qt.Equals, store.StateInterfaceUp)
+	c.Assert(ifaceLog.Log.Operation, qt.Equals, store.OpJoinDevice)
+	c.Assert(ifaceLog.Log.Dirty, qt.Equals, false)
 
 	// Subsequent join is rejected with "already joined" error.
 	_, err = a.JoinDevice(ctx, "test-device", "test-net", "")
 	c.Assert(err, qt.ErrorMatches, `.*already joined.*`)
 	// No change in interface state from rejected join attempt.
-	lastLog2, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLog2, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLog, qt.DeepEquals, lastLog2)
+	c.Assert(ifaceLog, qt.DeepEquals, ifaceLog2)
 }
 
 func TestJoinRefreshDepart(t *testing.T) {
@@ -129,7 +131,7 @@ func TestJoinRefreshDepart(t *testing.T) {
 	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Peers, qt.HasLen, 0)
-	lastLog, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
 
 	// Refresh will apply pending operations
@@ -139,33 +141,33 @@ func TestJoinRefreshDepart(t *testing.T) {
 	c.Assert(iface.Network, qt.DeepEquals, iface2.Network)
 	c.Assert(iface2.Peers, qt.HasLen, 1)
 
-	lastLogRefresh, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLogRefresh, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLogRefresh.Id > lastLog.Id, qt.IsTrue)
-	c.Assert(lastLogRefresh.Operation, qt.Equals, store.OpRefreshDevice)
-	c.Assert(lastLogRefresh.State, qt.Equals, store.StateInterfaceUp)
-	c.Assert(lastLogRefresh.Dirty, qt.IsTrue)
+	c.Assert(ifaceLogRefresh.Log.Id > ifaceLog.Log.Id, qt.IsTrue)
+	c.Assert(ifaceLogRefresh.Log.Operation, qt.Equals, store.OpRefreshDevice)
+	c.Assert(ifaceLogRefresh.Log.State, qt.Equals, store.StateInterfaceUp)
+	c.Assert(ifaceLogRefresh.Log.Dirty, qt.IsTrue)
 
-	err = a.ApplyInterfaceChanges(iface)
+	err = a.ApplyInterfaceChanges(&ifaceLogRefresh.Interface)
 	c.Assert(err, qt.IsNil)
 
 	// Now depart device
 	_, err = a.DeleteDevice(ctx, "test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	lastLogDelete, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLogDelete, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLogDelete.Id > lastLogRefresh.Id, qt.IsTrue)
-	c.Assert(lastLogDelete.Operation, qt.Equals, store.OpDeleteDevice)
-	c.Assert(lastLogDelete.State, qt.Equals, store.StateInterfaceDeparted)
-	c.Assert(lastLogDelete.Dirty, qt.IsTrue)
+	c.Assert(ifaceLogDelete.Log.Id > ifaceLogRefresh.Log.Id, qt.IsTrue)
+	c.Assert(ifaceLogDelete.Log.Operation, qt.Equals, store.OpDeleteDevice)
+	c.Assert(ifaceLogDelete.Log.State, qt.Equals, store.StateInterfaceDeparted)
+	c.Assert(ifaceLogDelete.Log.Dirty, qt.IsTrue)
 	err = a.ApplyInterfaceChanges(iface)
 	c.Assert(err, qt.IsNil)
 	lastLogDown, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLogDown.Id > lastLogDelete.Id, qt.IsTrue)
-	c.Assert(lastLogDown.Operation, qt.Equals, store.OpDeleteDevice)
-	c.Assert(lastLogDown.State, qt.Equals, store.StateInterfaceDown)
-	c.Assert(lastLogDown.Dirty, qt.IsFalse)
+	c.Assert(lastLogDown.Log.Id > ifaceLogDelete.Log.Id, qt.IsTrue)
+	c.Assert(lastLogDown.Log.Operation, qt.Equals, store.OpDeleteDevice)
+	c.Assert(lastLogDown.Log.State, qt.Equals, store.StateInterfaceDown)
+	c.Assert(lastLogDown.Log.Dirty, qt.IsFalse)
 }
 
 func testContext() context.Context {

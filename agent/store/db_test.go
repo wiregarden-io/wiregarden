@@ -184,15 +184,59 @@ func TestInterfaceLog(t *testing.T) {
 		return nil
 	})
 	c.Assert(err, qt.IsNil)
-	lastLog, err := st.LastLogByDevice("test-device", "test-net")
+	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
-	c.Assert(lastLog, qt.DeepEquals, &store.InterfaceLog{
+	c.Assert(ifaceLog.Log, qt.DeepEquals, store.InterfaceLog{
 		Id:        2,
-		Timestamp: lastLog.Timestamp,
+		Timestamp: ifaceLog.Log.Timestamp,
 		Operation: "join_device",
 		State:     "interface_up",
 		Dirty:     false,
 	})
+}
+
+func TestInterfaceUpsertUniqueConflict(t *testing.T) {
+	c := qt.New(t)
+	st, err := store.New(":memory:", generateStoreKey(c))
+	c.Assert(err, qt.IsNil)
+	defer st.Close()
+	k := generateKey(c)
+	iface := store.Interface{
+		ApiUrl: "https://wiregarden.io/api",
+		Network: api.Network{
+			Id:   "test-net-id",
+			Name: "test-net",
+			CIDR: parseAddress(c, "1.2.3.0/24"),
+		},
+		Device: api.Device{
+			Id:        "test-device-id",
+			Name:      "test-device",
+			Endpoint:  "example.com",
+			Addr:      parseAddress(c, "1.2.3.4/24"),
+			PublicKey: k.PublicKey(),
+		},
+		ListenPort:  12345,
+		Key:         k,
+		DeviceToken: []byte("itsasecrettoeverybody"),
+	}
+	iface2 := iface
+	err = st.EnsureInterface(&iface)
+	c.Assert(err, qt.IsNil)
+	c.Assert(iface.Name(), qt.Equals, "wgn001")
+	err = st.EnsureInterface(&iface)
+	c.Assert(err, qt.IsNil)
+
+	ifaceQuery, err := st.Interface(1)
+	c.Assert(err, qt.IsNil)
+	c.Assert(&iface, qt.DeepEquals, ifaceQuery)
+
+	err = st.EnsureInterface(&iface2)
+	c.Assert(err, qt.IsNil)
+	c.Assert(iface2.Name(), qt.Equals, "wgn001")
+	err = st.EnsureInterface(&iface2)
+	c.Assert(err, qt.IsNil)
+
+	c.Assert(iface, qt.DeepEquals, iface2)
 }
 
 func parseAddress(c *qt.C, addr string) wireguard.Address {

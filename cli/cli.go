@@ -114,6 +114,34 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
+			if c.String("name") == "" && c.String("network") == "" && c.String("endpoint") == "" {
+				ifaces, err := a.Interfaces()
+				if err != nil {
+					return errors.Wrap(err, "failed to list interfaces")
+				}
+				var lastErr error
+				for i := range ifaces {
+					iface, err := a.RefreshInterface(NewLoggerContext(), &ifaces[i])
+					if err != nil {
+						fmt.Printf("failed to refresh interface %q: %v", ifaces[i].Name(), err)
+						lastErr = err
+						continue
+					}
+					err = a.ApplyInterfaceChanges(iface)
+					if err != nil {
+						fmt.Printf("failed to apply changes to interface %q when refreshing: %v", ifaces[i].Name(), err)
+						lastErr = err
+						continue
+					}
+					fmt.Printf("device %q refreshed with latest network %q definition", iface.Device.Name, iface.Network.Name)
+				}
+				if ifaces, err = a.Interfaces(); err != nil {
+					fmt.Printf("failed to list interfaces: %v", err)
+				} else {
+					printStatus(ifaces, false)
+				}
+				return lastErr
+			}
 			iface, err := a.RefreshDevice(NewLoggerContext(), c.String("name"), c.String("network"), c.String("endpoint"))
 			if err != nil {
 				return errors.WithStack(err)

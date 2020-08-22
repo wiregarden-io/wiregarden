@@ -155,6 +155,15 @@ func (s *Store) EnsureInterfaceTx(tx *sql.Tx, iface *Interface) error {
 	if iface.Id > 0 {
 		id.Valid = true
 		id.Int64 = iface.Id
+	} else {
+		// Because sqlite only upserts on one conflicting constraint, match
+		// the id of any other conflicts ahead of time.
+		err := tx.QueryRow(`
+select id from iface where public_key = ? or device_id = ? or (net_name = ? and device_name = ?)
+`, iface.Device.PublicKey.String(), iface.Device.Id, iface.Network.Name, iface.Device.Name).Scan(&id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return errors.Wrap(err, "failed to query for existing interfaces")
+		}
 	}
 	result, err := tx.Exec(`
 insert into iface (
@@ -171,6 +180,7 @@ values (
 	?, ?, ?, ?, ?,
 	?, ?, ?)
 on conflict (id) do update set
+	id = excluded.id,
 	updated_at = excluded.updated_at,
 	api_url = excluded.api_url,
 	net_id = excluded.net_id,
@@ -203,6 +213,8 @@ on conflict (id) do update set
 			return errors.Wrap(err, "failed to obtain new interface id")
 		}
 		iface.Id = ifaceId
+	} else {
+		iface.Id = id.Int64
 	}
 	_, err = tx.Exec(`delete from peer where iface_id = ?`, iface.Id)
 	if err != nil {
@@ -358,24 +370,30 @@ values (?, ?, ?, ?, ?, ?)`[1:], time.Now().Unix(), iface.Id, operation, state, d
 	return nil
 }
 
-func (s *Store) LastLogByDevice(deviceName, networkName string) (*InterfaceLog, error) {
+func (s *Store) LastLogByDevice(deviceName, networkName string) (*InterfaceWithLog, error) {
 	var l InterfaceLog
-	var ts int64
+	var ifaceId, ts int64
 	err := s.db.QueryRow(`
 select
 	l.id, l.ts,
-	l.operation, l.state, l.dirty, l.message
+	l.operation, l.state, l.dirty, l.message,
+	i.id
 from iface_log l join iface i on (i.id = l.iface_id)
 where i.device_name = ? and i.net_name = ?
 order by l.id desc
 limit 1`[1:], deviceName, networkName).Scan(
 		&l.Id, &ts,
-		&l.Operation, &l.State, &l.Dirty, &l.Message)
+		&l.Operation, &l.State, &l.Dirty, &l.Message,
+		&ifaceId)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to query interface last log")
 	}
 	l.Timestamp = time.Unix(ts, 0)
-	return &l, nil
+	iface, err := s.Interface(ifaceId)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to query interface %d", ifaceId)
+	}
+	return &InterfaceWithLog{Interface: *iface, Log: l}, nil
 }
 
 func (s *Store) Interfaces() ([]InterfaceWithLog, error) {
@@ -403,15 +421,26 @@ func (s *Store) Interfaces() ([]InterfaceWithLog, error) {
 			return nil, errors.Wrapf(err, "failed to query interface %d", ifaceIds[i])
 		}
 		result[i] = InterfaceWithLog{Interface: *iface}
-		err = s.WithLog(iface, func(tx *sql.Tx, lastLog *InterfaceLog) error {
-			result[i].Log = *lastLog
-			return nil
-		})
+		lastLog, err := s.LastLog(iface)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to query last log for interface %d", ifaceIds[i])
 		}
+		result[i].Log = *lastLog
 	}
 	return result, nil
+}
+
+func (s *Store) LastLog(iface *Interface) (*InterfaceLog, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to begin transaction")
+	}
+	defer tx.Rollback()
+	l, err := LastLogTx(tx, iface)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get last log for interface %d", iface.Id)
+	}
+	return l, nil
 }
 
 func LastLogTx(tx *sql.Tx, iface *Interface) (*InterfaceLog, error) {
