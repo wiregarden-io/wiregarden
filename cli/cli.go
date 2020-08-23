@@ -24,6 +24,7 @@ import (
 	"github.com/juju/zaputil/zapctx"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/crypto/ssh/terminal"
 
@@ -39,7 +40,7 @@ var CommandLine = cli.App{
 	Flags: []cli.Flag{
 		&cli.PathFlag{Name: "datadir", Hidden: true},
 		&cli.StringFlag{Name: "url", Hidden: true},
-		&cli.BoolFlag{Name: "debug", Destination: &debug},
+		&cli.BoolFlag{Name: "debug", Hidden: true, Destination: &debug},
 	},
 	Commands: []*cli.Command{{
 		Name: "up",
@@ -63,7 +64,8 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			iface, err := a.JoinDevice(agent.WithToken(NewLoggerContext(), token), c.String("name"), c.String("network"), c.String("endpoint"))
+			ctx := NewLoggerContext(c)
+			iface, err := a.JoinDevice(agent.WithToken(ctx, token), c.String("name"), c.String("network"), c.String("endpoint"))
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -71,7 +73,10 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			fmt.Printf("device %q joined network %q with address %q", iface.Device.Name, iface.Network.Name, iface.Device.Addr)
+			zapctx.Info(ctx, "up",
+				zap.String("device", iface.Device.Name),
+				zap.String("network", iface.Network.Name),
+				zap.String("address", iface.Device.Addr.String()))
 			return nil
 		},
 	}, {
@@ -85,7 +90,8 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			iface, err := a.DeleteDevice(NewLoggerContext(), c.String("name"), c.String("network"))
+			ctx := NewLoggerContext(c)
+			iface, err := a.DeleteDevice(ctx, c.String("name"), c.String("network"))
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -93,7 +99,9 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			fmt.Printf("device %q deleted from network %q", iface.Device.Name, iface.Network.Name)
+			zapctx.Info(ctx, "down",
+				zap.String("device", iface.Device.Name),
+				zap.String("network", iface.Network.Name))
 			return errors.WithStack(err)
 		},
 	}, {
@@ -114,7 +122,48 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			iface, err := a.RefreshDevice(NewLoggerContext(), c.String("name"), c.String("network"), c.String("endpoint"))
+			ctx := NewLoggerContext(c)
+			if c.String("name") == "" && c.String("network") == "" && c.String("endpoint") == "" {
+				ifaces, err := a.Interfaces()
+				if err != nil {
+					return errors.Wrap(err, "failed to list interfaces")
+				}
+				var lastErr error
+				for i := range ifaces {
+					iface, err := a.RefreshInterface(ctx, &ifaces[i])
+					if err != nil {
+						zapctx.Warn(ctx, "refresh failed",
+							zap.String("interface", ifaces[i].Name()),
+							zap.String("device", ifaces[i].Device.Name),
+							zap.String("network", ifaces[i].Network.Name),
+							zap.Error(err),
+						)
+						lastErr = err
+						continue
+					}
+					err = a.ApplyInterfaceChanges(iface)
+					if err != nil {
+						zapctx.Warn(ctx, "failed to apply interface changes",
+							zap.String("interface", ifaces[i].Name()),
+							zap.String("device", ifaces[i].Device.Name),
+							zap.String("network", ifaces[i].Network.Name),
+							zap.Error(err),
+						)
+						lastErr = err
+						continue
+					}
+					zapctx.Info(ctx, "refreshed",
+						zap.String("device", iface.Device.Name),
+						zap.String("network", iface.Network.Name))
+				}
+				if ifaces, err = a.Interfaces(); err != nil {
+					zapctx.Warn(ctx, "failed to list interfaces", zap.Error(err))
+				} else {
+					printStatus(ifaces, false, false)
+				}
+				return lastErr
+			}
+			iface, err := a.RefreshDevice(ctx, c.String("name"), c.String("network"), c.String("endpoint"))
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -122,13 +171,16 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			fmt.Printf("device %q refreshed with latest network %q definition", iface.Device.Name, iface.Network.Name)
+			zapctx.Info(ctx, "refreshed",
+				zap.String("device", iface.Device.Name),
+				zap.String("network", iface.Network.Name))
 			return errors.WithStack(err)
 		},
 	}, {
 		Name: "status",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "json"},
+			&cli.BoolFlag{Name: "down"},
 		},
 		Action: func(c *cli.Context) error {
 			a, err := agent.New(c.Path("datadir"), c.String("url"))
@@ -136,7 +188,7 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			printStatus(ifaces, c.Bool("json"))
+			printStatus(ifaces, c.Bool("json"), c.Bool("down"))
 			return nil
 		},
 	}, {
@@ -154,7 +206,7 @@ var CommandLine = cli.App{
 				if err != nil {
 					return errors.WithStack(err)
 				}
-				resp, err := cl.GetSubscriptionToken(agent.WithToken(NewLoggerContext(), token), c.String("plan"))
+				resp, err := cl.GetSubscriptionToken(agent.WithToken(NewLoggerContext(c), token), c.String("plan"))
 				if err != nil {
 					return errors.WithStack(err)
 				}
@@ -191,9 +243,9 @@ func GetToken(key string, label string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(token)
 }
 
-func NewLoggerContext() context.Context {
+func NewLoggerContext(c *cli.Context) context.Context {
 	level := zapcore.InfoLevel
-	if debug {
+	if c.Bool("debug") {
 		level = zapcore.DebugLevel
 	}
 	return zapctx.WithLevel(context.Background(), level)
@@ -219,21 +271,27 @@ func ReadPassword(prompt string) (string, error) {
 	return string(pass), nil
 }
 
-func printStatus(ifaces []store.InterfaceWithLog, json bool) {
+func printStatus(ifaces []store.InterfaceWithLog, json, down bool) {
 	if json {
 		PrintJson(ifaces)
 	}
 	table := uitable.New()
 	table.MaxColWidth = 50
-	table.AddRow("Interface", "Network", "Address", "Port", "Peers", "Endpoint")
+	table.AddRow("Interface", "Network", "Address", "Port", "Peers", "Status")
 	for _, iface := range ifaces {
-		table.AddRow(iface.Name, iface.Network.Name,
+		if iface.Log.State == store.StateInterfaceDown && !down {
+			continue
+		}
+		table.AddRow(iface.Name(), iface.Network.Name,
 			iface.Device.Addr.String(), iface.ListenPort,
-			len(iface.Peers), iface.Device.Endpoint)
+			len(iface.Peers), iface.Log.State)
 	}
 	fmt.Println(table)
-	fmt.Println()
 	for _, iface := range ifaces {
+		if iface.Log.State == store.StateInterfaceDown && !down {
+			continue
+		}
+		fmt.Println()
 		table := uitable.New()
 		table.MaxColWidth = 50
 		table.AddRow("Network", "Peer", "Address", "Endpoint", "Key")

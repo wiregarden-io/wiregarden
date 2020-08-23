@@ -23,6 +23,7 @@ import (
 	"github.com/wiregarden-io/wiregarden/agent/store"
 	"github.com/wiregarden-io/wiregarden/api"
 	"github.com/wiregarden-io/wiregarden/network"
+	"github.com/wiregarden-io/wiregarden/wireguard"
 	wg "github.com/wiregarden-io/wiregarden/wireguard"
 )
 
@@ -30,15 +31,16 @@ var (
 	ErrAlreadyJoinedDevice    = errors.New("device already joined to network")
 	ErrInterfaceStateChanging = errors.New("interface state changed during operation")
 	ErrInterfaceStateInvalid  = errors.New("invalid interface state")
+	ErrDeviceNotFound         = errors.New("device not found")
 )
 
 type Agent struct {
 	dataDir string
 	apiUrl  string
 
-	st  *store.Store
-	api Client
-	nm  NetworkManager
+	st     *store.Store
+	newApi func(string) Client
+	nm     NetworkManager
 }
 
 type Params struct {
@@ -74,8 +76,8 @@ func New(dataDir, apiUrl string) (*Agent, error) {
 	a := &Agent{
 		dataDir: p.DataDir,
 		apiUrl:  p.ApiUrl,
-		api:     api.New(p.ApiUrl),
 		st:      st,
+		newApi:  func(apiUrl string) Client { return newRetryClient(api.New(apiUrl), nil) },
 		nm:      &wireguardManager{dataDir: p.DataDir},
 	}
 	return a, nil
@@ -180,41 +182,56 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 		networkName = "default"
 	}
 
-	_, err = a.st.LastLogByDevice(deviceName, networkName)
+	var machineId []byte
+	var key wireguard.Key
+	var availAddr *wireguard.Address
+	var listenPort int
+
+	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.Wrapf(err, "failed to query last log by device %q network %q", deviceName, networkName)
 		}
+		// No prior interface, let's create a new one to join.
+		machineId, err = MachineId()
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot determine machine ID")
+		}
+		key, err = wg.GenerateKey()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to generate key")
+		}
+		// TODO: only really need to do this if we're starting a new network.
+		availNet, err := network.RandomSubnetV4()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to find an available subnet")
+		}
+		availAddr, err = wg.ParseAddress(availNet)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse network %q", availNet)
+		}
+		listenPort, err = findListenPort(endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to find an available listen port")
+		}
 	} else {
-		return nil, errors.WithStack(ErrAlreadyJoinedDevice)
+		err = a.allowOperation(&ifaceLog.Log, store.OpJoinDevice)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		machineId, err = MachineId()
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot determine machine ID")
+		}
+		key = ifaceLog.Key
+		availAddr = &ifaceLog.Device.Addr
+		listenPort = ifaceLog.ListenPort
 	}
 
-	machineId, err := MachineId()
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot determine machine ID")
-	}
+	// TODO: reuse previously downed interface!
 
-	key, err := wg.GenerateKey()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to generate key")
-	}
-
-	// TODO: only really need to do this if we're starting a new network.
-	availNet, err := network.RandomSubnetV4()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to find an available subnet")
-	}
-	availAddr, err := wg.ParseAddress(availNet)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to parse network %q", availNet)
-	}
-
-	listenPort, err := findListenPort(endpoint)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to find an available listen port")
-	}
-
-	joinResp, err := a.api.JoinDevice(ctx, &api.JoinDeviceRequest{
+	cl := a.newApi(a.apiUrl)
+	joinResp, err := cl.JoinDevice(ctx, &api.JoinDeviceRequest{
 		Name:          deviceName,
 		Network:       networkName,
 		MachineId:     machineId,
@@ -228,6 +245,7 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 	}
 
 	var iface store.Interface
+	iface.ApiUrl = a.apiUrl
 	iface.ListenPort = listenPort
 	iface.Key = key
 	a.ifaceJoinDeviceResponse(&iface, joinResp)
@@ -253,7 +271,9 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 }
 
 func (a *Agent) ifaceJoinDeviceResponse(iface *store.Interface, joinResp *api.JoinDeviceResponse) {
-	iface.ApiUrl = a.apiUrl
+	if iface.ApiUrl == "" {
+		iface.ApiUrl = a.apiUrl
+	}
 	iface.Network = joinResp.Network
 	iface.Device = joinResp.Device
 	iface.Peers = joinResp.Peers
@@ -276,48 +296,48 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 		networkName = "default"
 	}
 
-	iface, err := a.st.InterfaceByDevice(deviceName, networkName)
+	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	lastLog, err := a.st.LastLogByDevice(deviceName, networkName)
-	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q", deviceName, networkName)
+		}
 		return nil, errors.WithStack(err)
 	}
 	// If there is an unapplied operation pending, let's try to apply it now.
-	if lastLog.Dirty {
-		err = a.ApplyInterfaceChanges(iface)
+	if ifaceLog.Log.Dirty {
+		err = a.ApplyInterfaceChanges(&ifaceLog.Interface)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		lastLog, err = a.st.LastLogByDevice(deviceName, networkName)
+		ifaceLog, err = a.st.LastLogByDevice(deviceName, networkName)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
-	err = a.allowOperation(lastLog, store.OpRefreshDevice)
+	err = a.allowOperation(&ifaceLog.Log, store.OpRefreshDevice)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	joinResp, err := a.api.RefreshDevice(WithToken(ctx, iface.DeviceToken), &api.RefreshDeviceRequest{
+	cl := a.newApi(ifaceLog.ApiUrl)
+	joinResp, err := cl.RefreshDevice(WithToken(ctx, ifaceLog.DeviceToken), &api.RefreshDeviceRequest{
 		Endpoint: endpoint,
 	})
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	a.ifaceJoinDeviceResponse(iface, joinResp)
-	err = a.st.WithLog(iface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
-		if *lastLog != *currentLastLog {
+	a.ifaceJoinDeviceResponse(&ifaceLog.Interface, joinResp)
+	err = a.st.WithLog(&ifaceLog.Interface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
+		if ifaceLog.Log != *currentLastLog {
 			return errors.Wrapf(ErrInterfaceStateChanging,
 				"interface state has changed, was %q at entry %d, found %q at entry %d",
-				lastLog.State, lastLog.Id, currentLastLog.State, currentLastLog.Id)
+				ifaceLog.Log.State, ifaceLog.Log.Id, currentLastLog.State, currentLastLog.Id)
 		}
-		err := a.st.EnsureInterfaceTx(tx, iface)
+		err := a.st.EnsureInterfaceTx(tx, &ifaceLog.Interface)
 		if err != nil {
 			return errors.Wrap(err, "failed to store interface")
 		}
-		err = store.AppendLogTx(tx, iface, store.OpRefreshDevice, store.StateInterfaceUp, true, "")
+		err = store.AppendLogTx(tx, &ifaceLog.Interface, store.OpRefreshDevice, store.StateInterfaceUp, true, "")
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -326,7 +346,53 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return iface, nil
+	return &ifaceLog.Interface, nil
+}
+
+func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWithLog) (*store.Interface, error) {
+	// If there is an unapplied operation pending, let's try to apply it now.
+	if iface.Log.Dirty {
+		err := a.ApplyInterfaceChanges(&iface.Interface)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		lastLog, err := a.st.LastLog(&iface.Interface)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		iface.Log = *lastLog
+	}
+	err := a.allowOperation(&iface.Log, store.OpRefreshDevice)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	cl := a.newApi(iface.ApiUrl)
+	joinResp, err := cl.RefreshDevice(WithToken(ctx, iface.DeviceToken), &api.RefreshDeviceRequest{})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	a.ifaceJoinDeviceResponse(&iface.Interface, joinResp)
+	err = a.st.WithLog(&iface.Interface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
+		if iface.Log != *currentLastLog {
+			return errors.Wrapf(ErrInterfaceStateChanging,
+				"interface state has changed, was %q at entry %d, found %q at entry %d",
+				iface.Log.State, iface.Log.Id, currentLastLog.State, currentLastLog.Id)
+		}
+		err := a.st.EnsureInterfaceTx(tx, &iface.Interface)
+		if err != nil {
+			return errors.Wrap(err, "failed to store interface")
+		}
+		err = store.AppendLogTx(tx, &iface.Interface, store.OpRefreshDevice, store.StateInterfaceUp, true, "")
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &iface.Interface, nil
 }
 
 func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error {
@@ -335,10 +401,11 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 	}
 	switch op {
 	case store.OpJoinDevice:
-		// Join is only valid if there is no prior state. If join fails, we never commit that state.
-		if l == nil {
+		// Allow re-joining a previously down interface.
+		if l.State == store.StateInterfaceDown {
 			return nil
 		}
+		return errors.Wrap(store.ErrInterfaceOperationInvalid, "interface already up")
 	case store.OpRefreshDevice:
 		if l.State == store.StateInterfaceUp {
 			return nil
@@ -354,6 +421,9 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 		// Allow deleting the device even if currently retrying some other operation like refresh
 		if l.State == store.StateInterfaceBlocked {
 			return nil
+		}
+		if l.State == store.StateInterfaceDown {
+			return errors.Wrap(store.ErrInterfaceOperationInvalid, "interface already down")
 		}
 	}
 	// TODO: we'll need to clean these up most likely
@@ -373,30 +443,30 @@ func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string
 		networkName = "default"
 	}
 
-	iface, err := a.st.InterfaceByDevice(deviceName, networkName)
+	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q not found", deviceName, networkName)
+		}
 		return nil, errors.WithStack(err)
 	}
-	lastLog, err := a.st.LastLogByDevice(deviceName, networkName)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	err = a.allowOperation(lastLog, store.OpDeleteDevice)
+	err = a.allowOperation(&ifaceLog.Log, store.OpDeleteDevice)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	err = a.api.DepartDevice(WithToken(ctx, iface.DeviceToken))
+	cl := a.newApi(ifaceLog.ApiUrl)
+	err = cl.DepartDevice(WithToken(ctx, ifaceLog.DeviceToken))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to depart network")
 	}
-	err = a.st.WithLog(iface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
-		if *lastLog != *currentLastLog {
+	err = a.st.WithLog(&ifaceLog.Interface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
+		if ifaceLog.Log != *currentLastLog {
 			return errors.Wrapf(ErrInterfaceStateChanging,
 				"interface state has changed, was %q at entry %d, found %q at entry %d",
-				lastLog.State, lastLog.Id, currentLastLog.State, currentLastLog.Id)
+				ifaceLog.Log.State, ifaceLog.Log.Id, currentLastLog.State, currentLastLog.Id)
 		}
-		err = store.AppendLogTx(tx, iface, store.OpDeleteDevice, store.StateInterfaceDeparted, true, "")
+		err = store.AppendLogTx(tx, &ifaceLog.Interface, store.OpDeleteDevice, store.StateInterfaceDeparted, true, "")
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -405,7 +475,7 @@ func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return iface, nil
+	return &ifaceLog.Interface, nil
 }
 
 func (a *Agent) Interfaces() ([]store.InterfaceWithLog, error) {
