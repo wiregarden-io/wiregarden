@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 )
 
@@ -35,8 +36,18 @@ type Client struct {
 }
 
 var (
-	ErrDeviceAlreadyJoined = errors.New("device already joined")
+	ErrApiServer           = errors.New("api server error")
+	ErrApiClient           = errors.New("api client error")
+	ErrApiInvalidResponse  = errors.New("api server gave an invalid response")
+	ErrDeviceAlreadyJoined = errors.Wrap(ErrApiClient, "device already joined")
 )
+
+func RetryableError(err error) error {
+	if errors.Is(err, ErrApiClient) {
+		return &backoff.PermanentError{Err: err}
+	}
+	return err
+}
 
 func New(apiUrl string) *Client {
 	if apiUrl == "" {
@@ -70,9 +81,21 @@ func (c *Client) Request(ctx context.Context, method, url string, v interface{})
 
 func (c *Client) Response(resp *http.Response, v interface{}) error {
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		// Not a 2xx OK response...
 		respContents, _ := ioutil.ReadAll(resp.Body)
-		return errors.Errorf("request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			// It's not me it's you
+			return errors.Wrapf(ErrApiServer, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			// It's not you it's me
+			return errors.Wrapf(ErrApiClient, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+		} else {
+			// Unexpected response codes indicate a misconfigured frontend
+			// reverse proxy or worse. Currently the API does not do 1xx or 3xx
+			// response codes, so this is unexpected.
+			return errors.Wrapf(ErrApiInvalidResponse, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+		}
 	}
 	if v == nil {
 		return nil

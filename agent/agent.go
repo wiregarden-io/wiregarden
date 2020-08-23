@@ -31,6 +31,7 @@ var (
 	ErrAlreadyJoinedDevice    = errors.New("device already joined to network")
 	ErrInterfaceStateChanging = errors.New("interface state changed during operation")
 	ErrInterfaceStateInvalid  = errors.New("invalid interface state")
+	ErrDeviceNotFound         = errors.New("device not found")
 )
 
 type Agent struct {
@@ -76,7 +77,7 @@ func New(dataDir, apiUrl string) (*Agent, error) {
 		dataDir: p.DataDir,
 		apiUrl:  p.ApiUrl,
 		st:      st,
-		newApi:  func(apiUrl string) Client { return api.New(apiUrl) },
+		newApi:  func(apiUrl string) Client { return newRetryClient(api.New(apiUrl), nil) },
 		nm:      &wireguardManager{dataDir: p.DataDir},
 	}
 	return a, nil
@@ -297,6 +298,9 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 
 	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q", deviceName, networkName)
+		}
 		return nil, errors.WithStack(err)
 	}
 	// If there is an unapplied operation pending, let's try to apply it now.
@@ -401,7 +405,7 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 		if l.State == store.StateInterfaceDown {
 			return nil
 		}
-		return errors.WithStack(api.ErrDeviceAlreadyJoined)
+		return errors.Wrap(store.ErrInterfaceOperationInvalid, "interface already up")
 	case store.OpRefreshDevice:
 		if l.State == store.StateInterfaceUp {
 			return nil
@@ -417,6 +421,9 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 		// Allow deleting the device even if currently retrying some other operation like refresh
 		if l.State == store.StateInterfaceBlocked {
 			return nil
+		}
+		if l.State == store.StateInterfaceDown {
+			return errors.Wrap(store.ErrInterfaceOperationInvalid, "interface already down")
 		}
 	}
 	// TODO: we'll need to clean these up most likely
@@ -438,6 +445,9 @@ func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string
 
 	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q not found", deviceName, networkName)
+		}
 		return nil, errors.WithStack(err)
 	}
 	err = a.allowOperation(&ifaceLog.Log, store.OpDeleteDevice)
