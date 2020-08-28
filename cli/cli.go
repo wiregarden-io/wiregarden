@@ -15,7 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	stdlog "log"
 	"net"
 	"os"
 	"os/exec"
@@ -27,12 +27,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"golang.org/x/crypto/ssh/terminal"
 
 	"github.com/wiregarden-io/wiregarden/agent"
 	"github.com/wiregarden-io/wiregarden/agent/store"
 	"github.com/wiregarden-io/wiregarden/api"
+	"github.com/wiregarden-io/wiregarden/log"
 	"github.com/wiregarden-io/wiregarden/watcher"
 )
 
@@ -259,9 +259,9 @@ func Run(cl *cli.App, args []string) {
 	err := cl.Run(args)
 	if err != nil {
 		if debug {
-			log.Fatalf("%+v", err)
+			stdlog.Fatalf("%+v", err)
 		} else {
-			log.Fatalf("%v", err)
+			stdlog.Fatalf("%v", err)
 		}
 	}
 }
@@ -279,10 +279,7 @@ func GetToken(key string, label string) ([]byte, error) {
 }
 
 func NewLoggerContext(c *cli.Context) context.Context {
-	if debug {
-		zapctx.LogLevel.SetLevel(zapcore.DebugLevel)
-	}
-	return zapctx.WithLogger(context.Background(), zapctx.Default)
+	return log.WithLog(context.Background(), debug)
 }
 
 func PrintJson(v interface{}) error {

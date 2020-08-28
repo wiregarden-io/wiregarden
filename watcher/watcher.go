@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/wiregarden-io/wiregarden/agent"
 	"github.com/wiregarden-io/wiregarden/agent/store"
+	"github.com/wiregarden-io/wiregarden/log"
 )
 
 type Watcher struct {
@@ -112,17 +112,18 @@ func (d *Watcher) Wait(ctx context.Context) bool {
 func (d *Watcher) ensureWatch(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	ctx := log.WithLog(r.Context(), true)
 	idParam := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
-		log.Printf("bad id %q: %v", idParam, err)
+		zapctx.Debug(ctx, "bad id", zap.String("id", idParam), zap.Error(err))
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	log.Printf("ensure watch: id %q", id)
+	zapctx.Debug(ctx, "ensure watch", zap.Int64("id", id))
 	iface, err := d.agent.Interface(id)
 	if err != nil {
-		log.Printf("failed to look up interface %q: %v", id, err)
+		zapctx.Debug(ctx, "failed to look up interface", zap.Int64("id", id), zap.Error(err))
 		if errors.Is(err, agent.ErrDeviceNotFound) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 		} else {
@@ -140,14 +141,15 @@ func (d *Watcher) ensureWatch(w http.ResponseWriter, r *http.Request) {
 func (d *Watcher) deleteWatch(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	ctx := log.WithLog(r.Context(), true)
 	idParam := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idParam, 10, 64)
 	if err != nil {
-		log.Printf("bad id %q: %v", idParam, err)
+		zapctx.Debug(ctx, "bad id", zap.String("id", idParam), zap.Error(err))
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	log.Printf("delete watch: id %q", id)
+	zapctx.Debug(ctx, "delete watch", zap.Int64("id", id))
 	if cancel, ok := d.watchers[id]; ok {
 		delete(d.watchers, id)
 		cancel()
@@ -161,7 +163,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 	zapctx.Debug(ctx, "start watching interface", zap.Int64("id", iface.Id))
 	defer zapctx.Debug(ctx, "stop watching interface", zap.Int64("id", iface.Id))
 	err := backoff.Retry(func() error {
-		cl := &http.Client{Timeout: 5 * time.Second}
+		cl := &http.Client{Timeout: 5 * time.Minute}
 		req, err := http.NewRequest("GET", iface.ApiUrl+"/v1/network/events?stream="+iface.Network.Id, nil)
 		if err != nil {
 			zapctx.Error(ctx, "failed to create request", zap.Error(err))
