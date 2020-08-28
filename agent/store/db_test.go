@@ -25,7 +25,7 @@ import (
 
 func TestNewStore(t *testing.T) {
 	c := qt.New(t)
-	_, err := store.New(":memory:", generateStoreKey(c))
+	_, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 }
 
@@ -38,7 +38,7 @@ func generateStoreKey(c *qt.C) store.Key {
 
 func TestInterfaceNoPeers(t *testing.T) {
 	c := qt.New(t)
-	st, err := store.New(":memory:", generateStoreKey(c))
+	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 	defer st.Close()
 	k := generateKey(c)
@@ -74,7 +74,7 @@ func TestInterfaceNoPeers(t *testing.T) {
 
 func TestInterfacePeers(t *testing.T) {
 	c := qt.New(t)
-	st, err := store.New(":memory:", generateStoreKey(c))
+	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 	defer st.Close()
 	k := generateKey(c)
@@ -135,7 +135,7 @@ func TestInterfacePeers(t *testing.T) {
 
 func TestInterfaceLog(t *testing.T) {
 	c := qt.New(t)
-	st, err := store.New(":memory:", generateStoreKey(c))
+	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 	defer st.Close()
 	k := generateKey(c)
@@ -197,7 +197,7 @@ func TestInterfaceLog(t *testing.T) {
 
 func TestInterfaceUpsertUniqueConflict(t *testing.T) {
 	c := qt.New(t)
-	st, err := store.New(":memory:", generateStoreKey(c))
+	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 	defer st.Close()
 	k := generateKey(c)

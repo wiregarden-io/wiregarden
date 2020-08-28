@@ -18,10 +18,12 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"syscall"
 
 	"github.com/gosuri/uitable"
 	"github.com/juju/zaputil/zapctx"
+	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
@@ -31,6 +33,7 @@ import (
 	"github.com/wiregarden-io/wiregarden/agent"
 	"github.com/wiregarden-io/wiregarden/agent/store"
 	"github.com/wiregarden-io/wiregarden/api"
+	"github.com/wiregarden-io/wiregarden/watcher"
 )
 
 var debug bool
@@ -56,7 +59,7 @@ var CommandLine = cli.App{
 					return errors.Wrap(err, "invalid endpoint, must be in the form host:port")
 				}
 			}
-			a, err := agent.New(c.Path("datadir"), c.String("url"))
+			a, err := agent.New(c.Path("datadir"), c.String("url"), agent.NotifyWatcher)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -77,6 +80,7 @@ var CommandLine = cli.App{
 				zap.String("device", iface.Device.Name),
 				zap.String("network", iface.Network.Name),
 				zap.String("address", iface.Device.Addr.String()))
+			ensureWatcherLaunch()
 			return nil
 		},
 	}, {
@@ -86,7 +90,7 @@ var CommandLine = cli.App{
 			&cli.StringFlag{Name: "network"},
 		},
 		Action: func(c *cli.Context) error {
-			a, err := agent.New(c.Path("datadir"), c.String("url"))
+			a, err := agent.New(c.Path("datadir"), c.String("url"), agent.NotifyWatcher)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -118,7 +122,7 @@ var CommandLine = cli.App{
 					return errors.Wrap(err, "invalid endpoint, must be in the form host:port")
 				}
 			}
-			a, err := agent.New(c.Path("datadir"), c.String("url"))
+			a, err := agent.New(c.Path("datadir"), c.String("url"), agent.NotifyWatcher)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -174,7 +178,8 @@ var CommandLine = cli.App{
 			zapctx.Info(ctx, "refreshed",
 				zap.String("device", iface.Device.Name),
 				zap.String("network", iface.Network.Name))
-			return errors.WithStack(err)
+			ensureWatcherLaunch()
+			return nil
 		},
 	}, {
 		Name: "status",
@@ -184,11 +189,41 @@ var CommandLine = cli.App{
 		},
 		Action: func(c *cli.Context) error {
 			a, err := agent.New(c.Path("datadir"), c.String("url"))
+			if err != nil {
+				return errors.WithStack(err)
+			}
 			ifaces, err := a.Interfaces()
 			if err != nil {
 				return errors.WithStack(err)
 			}
 			printStatus(ifaces, c.Bool("json"), c.Bool("down"))
+			ensureWatcherLaunch()
+			return nil
+		},
+	}, {
+		Name:   "watcher",
+		Hidden: true,
+		Flags:  []cli.Flag{},
+		Action: func(c *cli.Context) error {
+			lf, err := lockfile.New(agent.WatcherLockPath())
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			if err := lf.TryLock(); err != nil {
+				return errors.WithStack(err)
+			}
+			a, err := agent.New(c.Path("datadir"), c.String("url"))
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			w := watcher.New(a)
+			ctx := NewLoggerContext(c)
+			err = w.Start(ctx)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			<-chan struct{}(nil)
+			w.Wait(ctx)
 			return nil
 		},
 	}, {
@@ -244,11 +279,10 @@ func GetToken(key string, label string) ([]byte, error) {
 }
 
 func NewLoggerContext(c *cli.Context) context.Context {
-	level := zapcore.InfoLevel
-	if c.Bool("debug") {
-		level = zapcore.DebugLevel
+	if debug {
+		zapctx.LogLevel.SetLevel(zapcore.DebugLevel)
 	}
-	return zapctx.WithLevel(context.Background(), level)
+	return zapctx.WithLogger(context.Background(), zapctx.Default)
 }
 
 func PrintJson(v interface{}) error {
@@ -303,5 +337,12 @@ func printStatus(ifaces []store.InterfaceWithLog, json, down bool) {
 				peer.Addr.String(), peer.Endpoint, peer.PublicKey.String())
 		}
 		fmt.Println(table)
+	}
+}
+
+func ensureWatcherLaunch() {
+	cmd := exec.Command(os.Args[0], "watcher")
+	if err := cmd.Start(); err == nil {
+		cmd.Process.Release()
 	}
 }

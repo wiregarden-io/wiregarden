@@ -14,6 +14,7 @@ package store
 import (
 	"crypto/rand"
 	"database/sql"
+	"os"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -24,7 +25,7 @@ import (
 	"github.com/wiregarden-io/wiregarden/wireguard"
 )
 
-const createSchemaSql = `
+const createPublicSchemaSql = `
 create table if not exists iface (
 	id integer primary key autoincrement,
 	created_at integer,
@@ -42,11 +43,7 @@ create table if not exists iface (
 	device_addr text not null,
 	public_key text not null,
 
-	listen_port integer,
-
-	key blob not null,
-
-	device_token blob not null
+	listen_port integer
 );
 
 create unique index if not exists iface_device_id_unique
@@ -77,6 +74,14 @@ create table if not exists iface_log (
 	dirty bool not null default false,
     message text not null,
 	foreign key(iface_id) references iface(id)
+);
+`
+
+const createSecretSchemaSql = `
+create table if not exists iface_secrets (
+	iface_id integer primary key,
+	key blob not null,
+	device_token blob not null
 );
 `
 
@@ -117,15 +122,44 @@ type Store struct {
 }
 
 func New(path string, key Key) (*Store, error) {
+	err := ensureDB(path, createPublicSchemaSql)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to ensure database %q", path)
+	}
+	err = os.Chmod(path, 0644)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to set permissions on database %q", path)
+	}
+	secretPath := path + ".secret"
+	err = ensureDB(secretPath, createSecretSchemaSql)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to ensure database %q", secretPath)
+	}
+	err = os.Chmod(secretPath, 0600)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to set permissions on database %q", secretPath)
+	}
 	db, err := sql.Open("sqlite3", "file:"+path+"?_fk=true")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open database %q", path)
 	}
-	_, err = db.Exec(createSchemaSql)
+	_, err = db.Exec("attach database ? as secret", secretPath)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create database schema")
+		return nil, errors.Wrapf(err, "failed to attach database %q", secretPath)
 	}
 	return &Store{db: db, key: key}, nil
+}
+
+func ensureDB(path, createSchemaSql string) error {
+	db, err := sql.Open("sqlite3", "file:"+path+"?_fk=true")
+	if err != nil {
+		return errors.Wrapf(err, "failed to open database %q", path)
+	}
+	_, err = db.Exec(createSchemaSql)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create schema in database %q", path)
+	}
+	return nil
 }
 
 func (st *Store) Close() error {
@@ -171,14 +205,14 @@ insert into iface (
 	api_url,
 	net_id, net_name, net_cidr,
 	device_id, device_name, device_endpoint, device_addr, public_key,
-	listen_port, key, device_token
+	listen_port
 )
 values (
 	?, ?, ?,
 	?,
 	?, ?, ?,
 	?, ?, ?, ?, ?,
-	?, ?, ?)
+	?)
 on conflict (id) do update set
 	id = excluded.id,
 	updated_at = excluded.updated_at,
@@ -191,19 +225,14 @@ on conflict (id) do update set
 	device_endpoint = excluded.device_endpoint,
 	device_addr = excluded.device_addr,
 	public_key = excluded.public_key,
-	listen_port = excluded.listen_port,
-	key = excluded.key,
-	device_token = excluded.device_token
-;`[1:], id, now, now,
+	listen_port = excluded.listen_port;
+`[1:], id, now, now,
 		iface.ApiUrl,
 		iface.Network.Id, iface.Network.Name, iface.Network.CIDR.String(),
 		iface.Device.Id, iface.Device.Name,
 		iface.Device.Endpoint, iface.Device.Addr.String(),
 		iface.Device.PublicKey.String(),
-		iface.ListenPort,
-		mustEncryptSecret(iface.Key, &s.key),
-		mustEncryptSecret(iface.DeviceToken, &s.key),
-	)
+		iface.ListenPort)
 	if err != nil {
 		return errors.Wrap(err, "failed to upsert interface")
 	}
@@ -215,6 +244,19 @@ on conflict (id) do update set
 		iface.Id = ifaceId
 	} else {
 		iface.Id = id.Int64
+	}
+	_, err = tx.Exec(`
+insert into secret.iface_secrets (iface_id, key, device_token)
+values (?, ?, ?)
+on conflict (iface_id) do update set
+	iface_id = excluded.iface_id,
+	key = excluded.key,
+	device_token = excluded.device_token;
+`[1:], iface.Id,
+		mustEncryptSecret(iface.Key, &s.key),
+		mustEncryptSecret(iface.DeviceToken, &s.key))
+	if err != nil {
+		return errors.Wrap(err, "failed to upsert interface secrets")
 	}
 	_, err = tx.Exec(`delete from peer where iface_id = ?`, iface.Id)
 	if err != nil {
@@ -242,11 +284,12 @@ func (s *Store) Interface(id int64) (*Interface, error) {
 	)
 	err := s.db.QueryRow(`
 select
-	api_url,
-	net_id, net_name, net_cidr,
-	device_id, device_name, device_endpoint, device_addr, public_key,
-	listen_port, key, device_token
-from iface where id = ?`[1:], id).Scan(
+	i.api_url,
+	i.net_id, i.net_name, i.net_cidr,
+	i.device_id, i.device_name, i.device_endpoint, i.device_addr, i.public_key,
+	i.listen_port, s.key, s.device_token
+from iface i join secret.iface_secrets s on (i.id = s.iface_id)
+where id = ?`[1:], id).Scan(
 		&iface.ApiUrl,
 		&iface.Network.Id, &iface.Network.Name, &netCIDRText,
 		&iface.Device.Id, &iface.Device.Name, &iface.Device.Endpoint, &deviceAddrText, &publicKeyText,
