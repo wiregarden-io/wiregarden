@@ -22,7 +22,7 @@ func NewTestAgent(c *qt.C, cl Client, nm NetworkManager) (*Agent, *store.Store) 
 	var k store.Key
 	_, err := rand.Reader.Read(k[:])
 	c.Assert(err, qt.IsNil)
-	st, err := store.New(":memory:", k)
+	st, err := store.New(c.Mkdir()+"/db", k)
 	c.Assert(err, qt.IsNil)
 	return &Agent{
 		dataDir: c.Mkdir(),

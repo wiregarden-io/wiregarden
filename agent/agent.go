@@ -41,6 +41,7 @@ type Agent struct {
 	st     *store.Store
 	newApi func(string) Client
 	nm     NetworkManager
+	wc     *watcherClient
 }
 
 type Params struct {
@@ -61,7 +62,9 @@ type NetworkManager interface {
 	RemoveInterface(iface *store.Interface) error
 }
 
-func New(dataDir, apiUrl string) (*Agent, error) {
+type AgentOption func(*Agent)
+
+func New(dataDir, apiUrl string, options ...AgentOption) (*Agent, error) {
 	p, err := defaultParams(dataDir, apiUrl)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -80,7 +83,14 @@ func New(dataDir, apiUrl string) (*Agent, error) {
 		newApi:  func(apiUrl string) Client { return newRetryClient(api.New(apiUrl), nil) },
 		nm:      &wireguardManager{dataDir: p.DataDir},
 	}
+	for _, opt := range options {
+		opt(a)
+	}
 	return a, nil
+}
+
+func NotifyWatcher(a *Agent) {
+	a.wc = &watcherClient{}
 }
 
 const defaultDataDir = "/var/lib/wiregarden"
@@ -405,7 +415,7 @@ func (a *Agent) allowOperation(l *store.InterfaceLog, op store.Operation) error 
 		if l.State == store.StateInterfaceDown {
 			return nil
 		}
-		return errors.Wrap(store.ErrInterfaceOperationInvalid, "interface already up")
+		return errors.Wrap(ErrAlreadyJoinedDevice, "interface already up")
 	case store.OpRefreshDevice:
 		if l.State == store.StateInterfaceUp {
 			return nil
@@ -476,6 +486,14 @@ func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string
 		return nil, errors.WithStack(err)
 	}
 	return &ifaceLog.Interface, nil
+}
+
+func (a *Agent) Interface(id int64) (*store.Interface, error) {
+	iface, err := a.st.Interface(id)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return iface, nil
 }
 
 func (a *Agent) Interfaces() ([]store.InterfaceWithLog, error) {
