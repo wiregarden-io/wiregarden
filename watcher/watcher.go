@@ -192,7 +192,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			}
 
 			zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
-			_, err = d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
+			iface, err = d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
 			if err != nil {
 				if errors.Is(err, agent.ErrInterfaceStateInvalid) {
 					zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
