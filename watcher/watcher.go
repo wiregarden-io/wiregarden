@@ -169,6 +169,9 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			zapctx.Error(ctx, "failed to create request", zap.Error(err))
 			return backoff.Permanent(errors.WithStack(err))
 		}
+		req.Header.Set("Cache-Control", "no-cache")
+		req.Header.Set("Accept", "application/stream+json")
+		req.Header.Set("Connection", "keep-alive")
 		req.Header.Set("Authorization", "Bearer "+base64.StdEncoding.EncodeToString(iface.DeviceToken))
 		resp, err := cl.Do(req)
 		if err != nil {
