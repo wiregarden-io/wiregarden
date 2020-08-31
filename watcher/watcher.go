@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/cenkalti/backoff"
 	"github.com/go-chi/chi"
@@ -163,12 +162,15 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 	zapctx.Debug(ctx, "start watching interface", zap.Int64("id", iface.Id))
 	defer zapctx.Debug(ctx, "stop watching interface", zap.Int64("id", iface.Id))
 	err := backoff.Retry(func() error {
-		cl := &http.Client{Timeout: 5 * time.Minute}
+		cl := &http.Client{}
 		req, err := http.NewRequest("GET", iface.ApiUrl+"/v1/network/events?stream="+iface.Network.Id, nil)
 		if err != nil {
 			zapctx.Error(ctx, "failed to create request", zap.Error(err))
 			return backoff.Permanent(errors.WithStack(err))
 		}
+		req.Header.Set("Cache-Control", "no-cache")
+		req.Header.Set("Accept", "application/stream+json")
+		req.Header.Set("Connection", "keep-alive")
 		req.Header.Set("Authorization", "Bearer "+base64.StdEncoding.EncodeToString(iface.DeviceToken))
 		resp, err := cl.Do(req)
 		if err != nil {
