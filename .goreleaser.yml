@@ -13,6 +13,18 @@ builds:
   - amd64
 archives:
 - format: binary
+nfpms:
+- package_name: wiregarden
+  vendor: Wiregarden
+  homepage: https://wiregarden.io/
+  maintainer: Wiregarden Ops <ops@wiregarden.io>
+  description: Grow your own private networks.
+  license: BSL 1.1
+  formats:
+  - deb
+  dependencies:
+  - wireguard-tools
+  bindir: /usr/bin
 release:
   extra_files:
   - glob: ./install.bash
