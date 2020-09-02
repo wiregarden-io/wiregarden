@@ -156,6 +156,47 @@ func (c *Client) DepartDevice(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) ListDevices(ctx context.Context) (*ListDevicesResponse, error) {
+	resp, err := c.Request(ctx, "GET", "/v1/device", nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("request failed, HTTP %d", resp.StatusCode)
+	}
+	var listResp ListDevicesResponse
+	err = c.Response(resp, &listResp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &listResp, nil
+}
+
+func (c *Client) DeleteDevice(ctx context.Context, deviceId string) error {
+	resp, err := c.Request(ctx, "DELETE", "/v1/device/"+deviceId, nil)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("request failed, HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) DeleteNetwork(ctx context.Context, networkId string) error {
+	resp, err := c.Request(ctx, "DELETE", "/v1/network/"+networkId, nil)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("request failed, HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) Whoami(ctx context.Context) (string, error) {
 	resp, err := c.Request(ctx, "GET", "/admin/whoami", nil)
 	if err != nil {

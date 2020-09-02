@@ -86,6 +86,15 @@ type JoinDeviceResponse struct {
 	Token []byte `json:"token"`
 }
 
+type ListDevicesResponse struct {
+	Devices []GetDeviceResponse `json:"devices"`
+}
+
+type GetDeviceResponse struct {
+	Network Network `json:"network"`
+	Device  Device  `json:"device"`
+}
+
 type Device struct {
 	Id        string            `json:"id"`
 	Name      string            `json:"name"`

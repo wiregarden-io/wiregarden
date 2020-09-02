@@ -228,6 +228,42 @@ var CommandLine = cli.App{
 			return nil
 		},
 	}, {
+		Name: "list",
+		Action: func(c *cli.Context) error {
+			cl := api.New(c.String("url"))
+			token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			resp, err := cl.ListDevices(agent.WithToken(NewLoggerContext(c), token))
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			return PrintJson(resp)
+		},
+	}, {
+		Name: "delete",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "device"},
+			&cli.StringFlag{Name: "network"},
+		},
+		Action: func(c *cli.Context) error {
+			if (c.String("device") == "") == (c.String("network") == "") {
+				return errors.New("specify one of --device or --network options")
+			}
+			cl := api.New(c.String("url"))
+			token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			if device := c.String("device"); device != "" {
+				err = cl.DeleteDevice(agent.WithToken(NewLoggerContext(c), token), device)
+			} else if network := c.String("network"); network != "" {
+				err = cl.DeleteNetwork(agent.WithToken(NewLoggerContext(c), token), network)
+			}
+			return errors.WithStack(err)
+		},
+	}, {
 		Name:   "user",
 		Hidden: true,
 		Subcommands: []*cli.Command{{
