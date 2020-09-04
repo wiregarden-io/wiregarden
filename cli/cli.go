@@ -134,7 +134,7 @@ var CommandLine = cli.App{
 				}
 				var lastErr error
 				for i := range ifaces {
-					iface, err := a.RefreshInterface(ctx, &ifaces[i])
+					iface, err := a.RefreshInterface(ctx, &ifaces[i], "")
 					if err != nil {
 						zapctx.Warn(ctx, "refresh failed",
 							zap.String("interface", ifaces[i].Name()),

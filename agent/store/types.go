@@ -135,6 +135,9 @@ const (
 	// StateInterfaceDeparted means we've departed the wiregarden network.
 	StateInterfaceDeparted = State("interface_departed")
 
+	// StateInterfaceRevoked means we've been kicked from the wiregarden network.
+	StateInterfaceRevoked = State("interface_revoked")
+
 	// StateInterfaceDown means the network interface has been brought down
 	// successfully.
 	StateInterfaceDown = State("interface_down")

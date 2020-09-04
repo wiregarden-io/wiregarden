@@ -170,21 +170,138 @@ func TestJoinRefreshDepart(t *testing.T) {
 	c.Assert(lastLogDown.Log.Dirty, qt.IsFalse)
 }
 
+func TestJoinRefreshRevoked(t *testing.T) {
+	c := qt.New(t)
+	k := generateKey(c)
+	a, st := agent.NewTestAgent(c, &mockClient{
+		joinResponse: &api.JoinDeviceResponse{
+			Network: api.Network{
+				Id:   "test-net-id",
+				Name: "test-net",
+				CIDR: parseAddress(c, "1.2.3.0/24"),
+			},
+			Device: api.Device{
+				Id:        "test-device-id",
+				Name:      "test-device",
+				Addr:      parseAddress(c, "1.2.3.4/24"),
+				PublicKey: k.PublicKey(),
+			},
+			Peers: []api.Device{},
+			Token: []byte("device-token"),
+		},
+		refreshErr: api.ErrApiForbidden,
+	}, &mockNetworkManager{})
+	ctx := testContext()
+	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	c.Assert(err, qt.IsNil)
+	c.Assert(iface.Peers, qt.HasLen, 0)
+	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
+	c.Assert(err, qt.IsNil)
+
+	// Refresh discovers we've been kicked
+	iface2, err := a.RefreshDevice(ctx, "test-device", "test-net", "")
+	c.Assert(err, qt.IsNil)
+	c.Assert(iface.Id, qt.Equals, iface2.Id)
+	c.Assert(iface.Network, qt.DeepEquals, iface2.Network)
+	c.Assert(iface2.Peers, qt.HasLen, 0)
+
+	ifaceLogRefresh, err := st.LastLogByDevice("test-device", "test-net")
+	c.Assert(err, qt.IsNil)
+	c.Assert(ifaceLogRefresh.Log.Id > ifaceLog.Log.Id, qt.IsTrue)
+	c.Assert(ifaceLogRefresh.Log.Operation, qt.Equals, store.OpRefreshDevice)
+	c.Assert(ifaceLogRefresh.Log.State, qt.Equals, store.StateInterfaceRevoked)
+	c.Assert(ifaceLogRefresh.Log.Dirty, qt.IsTrue)
+
+	err = a.ApplyInterfaceChanges(&ifaceLogRefresh.Interface)
+	c.Assert(err, qt.IsNil)
+
+	lastLog, err := st.LastLog(iface)
+	c.Assert(err, qt.IsNil)
+	c.Assert(lastLog.Id > ifaceLog.Log.Id, qt.IsTrue)
+	c.Assert(lastLog.Operation, qt.Equals, store.OpRefreshDevice)
+	c.Assert(lastLog.State, qt.Equals, store.StateInterfaceDown)
+	c.Assert(lastLog.Dirty, qt.IsFalse)
+}
+
+func TestRefreshEndpoint(t *testing.T) {
+	c := qt.New(t)
+	k := generateKey(c)
+	a, st := agent.NewTestAgent(c, &mockClient{
+		c: c,
+		joinResponse: &api.JoinDeviceResponse{
+			Network: api.Network{
+				Id:   "test-net-id",
+				Name: "test-net",
+				CIDR: parseAddress(c, "1.2.3.0/24"),
+			},
+			Device: api.Device{
+				Id:        "test-device-id",
+				Name:      "test-device",
+				Addr:      parseAddress(c, "1.2.3.4/24"),
+				PublicKey: k.PublicKey(),
+			},
+			Peers: []api.Device{},
+			Token: []byte("device-token"),
+		},
+		expectRefreshRequest: &api.RefreshDeviceRequest{
+			Endpoint: "10.20.30.40:50607",
+		},
+		refreshResponse: &api.JoinDeviceResponse{
+			Network: api.Network{
+				Id:   "test-net-id",
+				Name: "test-net",
+				CIDR: parseAddress(c, "1.2.3.0/24"),
+			},
+			Device: api.Device{
+				Id:        "test-device-id",
+				Name:      "test-device",
+				Addr:      parseAddress(c, "1.2.3.4/24"),
+				PublicKey: k.PublicKey(),
+				Endpoint:  "10.20.30.40:50607",
+			},
+			Peers: []api.Device{{
+				Id:        "test-device-2-id",
+				Name:      "test-device-2",
+				Addr:      parseAddress(c, "1.2.3.5/24"),
+				PublicKey: generateKey(c).PublicKey(),
+			}},
+			Token: []byte("device-token"),
+		},
+	}, &mockNetworkManager{})
+	ctx := testContext()
+	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	c.Assert(err, qt.IsNil)
+	c.Assert(iface.Peers, qt.HasLen, 0)
+	c.Assert(iface.Device.Endpoint, qt.Equals, "")
+	_, err = st.LastLogByDevice("test-device", "test-net")
+	c.Assert(err, qt.IsNil)
+
+	// Refresh with new endpoint
+	_, err = a.RefreshDevice(ctx, "test-device", "test-net", "10.20.30.40:50607")
+	c.Assert(err, qt.IsNil)
+}
+
 func testContext() context.Context {
 	return agent.WithToken(context.Background(), []byte("test-token"))
 }
 
 type mockClient struct {
-	joinResponse    *api.JoinDeviceResponse
-	refreshResponse *api.JoinDeviceResponse
+	c                    *qt.C
+	joinResponse         *api.JoinDeviceResponse
+	expectRefreshRequest *api.RefreshDeviceRequest
+	refreshResponse      *api.JoinDeviceResponse
+	refreshErr           error
 }
 
 func (c *mockClient) JoinDevice(context.Context, *api.JoinDeviceRequest) (*api.JoinDeviceResponse, error) {
 	return c.joinResponse, nil
 }
 
-func (c *mockClient) RefreshDevice(context.Context, *api.RefreshDeviceRequest) (*api.JoinDeviceResponse, error) {
-	return c.refreshResponse, nil
+func (c *mockClient) RefreshDevice(_ context.Context, req *api.RefreshDeviceRequest) (*api.JoinDeviceResponse, error) {
+	if c.expectRefreshRequest != nil {
+		c.c.Assert(req, qt.DeepEquals, c.expectRefreshRequest)
+	}
+	return c.refreshResponse, c.refreshErr
 }
 
 func (c *mockClient) DepartDevice(ctx context.Context) error {

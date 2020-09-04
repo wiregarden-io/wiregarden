@@ -38,6 +38,7 @@ type Client struct {
 var (
 	ErrApiServer           = errors.New("api server error")
 	ErrApiClient           = errors.New("api client error")
+	ErrApiForbidden        = errors.New("api client forbidden")
 	ErrApiInvalidResponse  = errors.New("api server gave an invalid response")
 	ErrDeviceAlreadyJoined = errors.Wrap(ErrApiClient, "device already joined")
 )
@@ -89,7 +90,11 @@ func (c *Client) Response(resp *http.Response, v interface{}) error {
 			return errors.Wrapf(ErrApiServer, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			// It's not you it's me
-			return errors.Wrapf(ErrApiClient, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			if resp.StatusCode == 403 {
+				return errors.Wrapf(ErrApiForbidden, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			} else {
+				return errors.Wrapf(ErrApiClient, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			}
 		} else {
 			// Unexpected response codes indicate a misconfigured frontend
 			// reverse proxy or worse. Currently the API does not do 1xx or 3xx

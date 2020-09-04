@@ -313,53 +313,10 @@ func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endp
 		}
 		return nil, errors.WithStack(err)
 	}
-	// If there is an unapplied operation pending, let's try to apply it now.
-	if ifaceLog.Log.Dirty {
-		err = a.ApplyInterfaceChanges(&ifaceLog.Interface)
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-		ifaceLog, err = a.st.LastLogByDevice(deviceName, networkName)
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-	}
-	err = a.allowOperation(&ifaceLog.Log, store.OpRefreshDevice)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	cl := a.newApi(ifaceLog.ApiUrl)
-	joinResp, err := cl.RefreshDevice(WithToken(ctx, ifaceLog.DeviceToken), &api.RefreshDeviceRequest{
-		Endpoint: endpoint,
-	})
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	a.ifaceJoinDeviceResponse(&ifaceLog.Interface, joinResp)
-	err = a.st.WithLog(&ifaceLog.Interface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
-		if ifaceLog.Log != *currentLastLog {
-			return errors.Wrapf(ErrInterfaceStateChanging,
-				"interface state has changed, was %q at entry %d, found %q at entry %d",
-				ifaceLog.Log.State, ifaceLog.Log.Id, currentLastLog.State, currentLastLog.Id)
-		}
-		err := a.st.EnsureInterfaceTx(tx, &ifaceLog.Interface)
-		if err != nil {
-			return errors.Wrap(err, "failed to store interface")
-		}
-		err = store.AppendLogTx(tx, &ifaceLog.Interface, store.OpRefreshDevice, store.StateInterfaceUp, true, "")
-		if err != nil {
-			return errors.WithStack(err)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return &ifaceLog.Interface, nil
+	return a.RefreshInterface(ctx, ifaceLog, endpoint)
 }
 
-func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWithLog) (*store.Interface, error) {
+func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWithLog, endpoint string) (*store.Interface, error) {
 	// If there is an unapplied operation pending, let's try to apply it now.
 	if iface.Log.Dirty {
 		err := a.ApplyInterfaceChanges(&iface.Interface)
@@ -378,8 +335,13 @@ func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWith
 	}
 
 	cl := a.newApi(iface.ApiUrl)
-	joinResp, err := cl.RefreshDevice(WithToken(ctx, iface.DeviceToken), &api.RefreshDeviceRequest{})
+	joinResp, err := cl.RefreshDevice(WithToken(ctx, iface.DeviceToken), &api.RefreshDeviceRequest{
+		Endpoint: endpoint,
+	})
 	if err != nil {
+		if errors.Is(err, api.ErrApiForbidden) {
+			return a.revokedInterface(ctx, iface)
+		}
 		return nil, errors.WithStack(err)
 	}
 	a.ifaceJoinDeviceResponse(&iface.Interface, joinResp)
@@ -394,6 +356,29 @@ func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWith
 			return errors.Wrap(err, "failed to store interface")
 		}
 		err = store.AppendLogTx(tx, &iface.Interface, store.OpRefreshDevice, store.StateInterfaceUp, true, "")
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &iface.Interface, nil
+}
+
+func (a *Agent) revokedInterface(ctx context.Context, iface *store.InterfaceWithLog) (*store.Interface, error) {
+	err := a.st.WithLog(&iface.Interface, func(tx *sql.Tx, currentLastLog *store.InterfaceLog) error {
+		if iface.Log != *currentLastLog {
+			return errors.Wrapf(ErrInterfaceStateChanging,
+				"interface state has changed, was %q at entry %d, found %q at entry %d",
+				iface.Log.State, iface.Log.Id, currentLastLog.State, currentLastLog.Id)
+		}
+		err := a.st.EnsureInterfaceTx(tx, &iface.Interface)
+		if err != nil {
+			return errors.Wrap(err, "failed to store interface")
+		}
+		err = store.AppendLogTx(tx, &iface.Interface, store.OpRefreshDevice, store.StateInterfaceRevoked, true, "")
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -460,7 +445,11 @@ func (a *Agent) DeleteDevice(ctx context.Context, deviceName, networkName string
 		}
 		return nil, errors.WithStack(err)
 	}
-	err = a.allowOperation(&ifaceLog.Log, store.OpDeleteDevice)
+	return a.deleteInterface(ctx, ifaceLog)
+}
+
+func (a *Agent) deleteInterface(ctx context.Context, ifaceLog *store.InterfaceWithLog) (*store.Interface, error) {
+	err := a.allowOperation(&ifaceLog.Log, store.OpDeleteDevice)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -534,6 +523,11 @@ func (a *Agent) applyInterfaceChanges(iface *store.Interface, lastLog *store.Int
 			Operation: lastLog.Operation,
 			State:     store.StateInterfaceUp,
 		}, a.nm.EnsureInterface(iface)
+	case store.StateInterfaceRevoked:
+		return &store.InterfaceLog{
+			Operation: lastLog.Operation,
+			State:     store.StateInterfaceDown,
+		}, a.nm.RemoveInterface(iface)
 	case store.StateInterfaceDeparted:
 		return &store.InterfaceLog{
 			Operation: lastLog.Operation,
