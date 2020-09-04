@@ -155,6 +155,7 @@ func ensureDB(path, createSchemaSql string) error {
 	if err != nil {
 		return errors.Wrapf(err, "failed to open database %q", path)
 	}
+	defer db.Close()
 	_, err = db.Exec(createSchemaSql)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create schema in database %q", path)
