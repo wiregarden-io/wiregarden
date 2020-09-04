@@ -38,6 +38,7 @@ type Client struct {
 var (
 	ErrApiServer           = errors.New("api server error")
 	ErrApiClient           = errors.New("api client error")
+	ErrApiForbidden        = errors.New("api client forbidden")
 	ErrApiInvalidResponse  = errors.New("api server gave an invalid response")
 	ErrDeviceAlreadyJoined = errors.Wrap(ErrApiClient, "device already joined")
 )
@@ -89,7 +90,11 @@ func (c *Client) Response(resp *http.Response, v interface{}) error {
 			return errors.Wrapf(ErrApiServer, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			// It's not you it's me
-			return errors.Wrapf(ErrApiClient, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			if resp.StatusCode == 403 {
+				return errors.Wrapf(ErrApiForbidden, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			} else {
+				return errors.Wrapf(ErrApiClient, "request failed: HTTP %d: %s", resp.StatusCode, string(respContents))
+			}
 		} else {
 			// Unexpected response codes indicate a misconfigured frontend
 			// reverse proxy or worse. Currently the API does not do 1xx or 3xx
@@ -147,6 +152,47 @@ func (c *Client) DepartDevice(ctx context.Context) error {
 	err = c.Response(resp, nil)
 	if err != nil {
 		return errors.Wrap(err, "failed to depart device")
+	}
+	return nil
+}
+
+func (c *Client) ListDevices(ctx context.Context) (*ListDevicesResponse, error) {
+	resp, err := c.Request(ctx, "GET", "/v1/device", nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("request failed, HTTP %d", resp.StatusCode)
+	}
+	var listResp ListDevicesResponse
+	err = c.Response(resp, &listResp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &listResp, nil
+}
+
+func (c *Client) DeleteDevice(ctx context.Context, deviceId string) error {
+	resp, err := c.Request(ctx, "DELETE", "/v1/device/"+deviceId, nil)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("request failed, HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) DeleteNetwork(ctx context.Context, networkId string) error {
+	resp, err := c.Request(ctx, "DELETE", "/v1/network/"+networkId, nil)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("request failed, HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
