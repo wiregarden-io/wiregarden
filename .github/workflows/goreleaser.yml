@@ -27,15 +27,4 @@ jobs:
           args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Get package version
-        shell: bash
-        run: echo "##[set-output name=version;]$(git tag -l | sort --version-sort -r | head -1 | sed 's/^v//')"
-        id: extract_version
-      -
-        shell: bash
-        run: curl -O wiregarden_${{ steps.extract_version.outputs.version }}_linux_amd64.deb https://github.com/wiregarden-io/wiregarden/releases/download/v${{ steps.extract_version.outputs.version }}/wiregarden_${{ steps.extract_version.outputs.version }}_linux_amd64.deb
-      -
-        shell: bash
-        run: curl -T wiregarden_${{ steps.extract_version.outputs.version }}_linux_amd64.deb -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/deb/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/wiregarden_${{ steps.extract_version.outputs.version }}_linux_amd64.deb;deb_distribution=xenial,bionic,focal;deb_component=main;deb_architecture=amd64;publish=1;override=1"
 
