@@ -9,6 +9,8 @@ jobs:
 
     steps:
       -
+        uses: actions/checkout@v2
+      -
         name: Get package version
         shell: bash
         run: echo "##[set-output name=version;]$(git tag -l | sort --version-sort -r | head -1 | sed 's/^v//')"
