@@ -34,18 +34,14 @@ jobs:
       run: echo "##[set-output name=debfile;]$(basename ./dist/*.deb)"
       id: extract_debfile
 
-    - uses: actions/upload-artifact@v2
-      with:
-        path: target/debian/${{ steps.extract_debfile.outputs.debfile }}
-        name: ${{ steps.extract_debfile.outputs.debfile }}
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.extract_version.outputs.version }}
-        release_name: Release ${{ steps.extract_version.outputs.version }}
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
         draft: false
         prerelease: false
     - name: Upload Release Asset - deb
@@ -55,7 +51,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./target/debian/${{ steps.extract_debfile.outputs.debfile }}
+        asset_path: ./dist/${{ steps.extract_debfile.outputs.debfile }}
         asset_name: ${{ steps.extract_debfile.outputs.debfile }}
         asset_content_type: application/octet-stream
     - name: Upload Release Asset - binary
