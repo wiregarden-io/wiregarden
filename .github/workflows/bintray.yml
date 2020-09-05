@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v2
       -
         shell: bash
-        run: curl -o wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb https://github.com/wiregarden-io/wiregarden/releases/download/v${{ github.event.inputs.version }}/wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb
+        run: curl -L -o wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb https://github.com/wiregarden-io/wiregarden/releases/download/v${{ github.event.inputs.version }}/wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb
       -
         shell: bash
         run: curl -T wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/deb/wiregarden/${{ github.event.inputs.version }}/pool/w/wiregarden_${{ github.event.inputs.version }}_linux_amd64.deb;deb_distribution=xenial,bionic,focal;deb_component=main;deb_architecture=amd64;publish=1;override=1"
