@@ -33,5 +33,5 @@ jobs:
       run: echo "##[set-output name=debfile;]$(basename ./dist/*.deb)"
       id: extract_debfile
     - shell: bash
-      run: curl -T ./dist/${{ steps.extract_debfile.outputs.debfile }} -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/deb/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/${{ steps.extract_debfile.outputs.debfile }};deb_distribution=xenial,bionic,focal,stretch,buster,bullseye;deb_component=main;deb_architecture=amd64;publish=1;override=1"
+      run: curl -T ./dist/${{ steps.extract_debfile.outputs.debfile }} -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/unstable/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/${{ steps.extract_debfile.outputs.debfile }};deb_distribution=xenial,bionic,focal;deb_component=main;deb_architecture=amd64;publish=1;override=1"
 

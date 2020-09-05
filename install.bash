@@ -12,15 +12,17 @@ function error_not_supported {
 case $ID in
 	ubuntu)
 		export DEBIAN_FRONTEND=non-interactive
+		echo "deb https://dl.bintray.com/wiregarden-io/stable ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/wiregarden.list
+		sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 379CE192D401AB61
 		case $VERSION_ID in
 			20.04)
 				sudo apt-get update
-				sudo apt-get install -y wireguard wireguard-tools
+				sudo apt-get install -y wiregarden wireguard-tools libnss-wiregarden
 				;;
 			16.04|18.04)
 				sudo add-apt-repository -y ppa:wireguard/wireguard
 				sudo apt-get update
-				sudo apt-get install -y wireguard wireguard-tools
+				sudo apt-get install -y wiregarden wireguard wireguard-tools libnss-wiregarden
 				;;
 			*)
 				error_not_supported
@@ -31,7 +33,4 @@ case $ID in
 		error_not_supported
 		;;
 esac
-
-sudo wget -O /usr/local/bin/wiregarden https://wiregarden.io/dist/latest/wiregarden
-chmod +x /usr/local/bin/wiregarden
 

@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  push:
+    tags:
+    - 'v*'
+
+jobs:
+  stable-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0  # need tags to calculate version
+    - uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+      id: go
+
+    # Build and run tests
+    - run: |
+        go get -v -t -d ./...
+    - run: go build -v .
+    - run: go test -v ./...
+
+    # Build stable package and publish to bintray and github
+    - shell: bash
+      run: make stable
+    - shell: bash
+      run: echo "##[set-output name=version;]$(cat dist/version)"
+      id: extract_version
+    - shell: bash
+      run: echo "##[set-output name=debfile;]$(basename ./dist/*.deb)"
+      id: extract_debfile
+
+    - uses: actions/upload-artifact@v2
+      with:
+        path: target/debian/${{ steps.extract_debfile.outputs.debfile }}
+        name: ${{ steps.extract_debfile.outputs.debfile }}
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.extract_version.outputs.version }}
+        release_name: Release ${{ steps.extract_version.outputs.version }}
+        draft: false
+        prerelease: false
+    - name: Upload Release Asset - deb
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./target/debian/${{ steps.extract_debfile.outputs.debfile }}
+        asset_name: ${{ steps.extract_debfile.outputs.debfile }}
+        asset_content_type: application/octet-stream
+    - name: Upload Release Asset - binary
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/wiregarden
+        asset_name: wiregarden_linux_amd64
+        asset_content_type: application/octet-stream
+    - name: Upload Release Asset - quickstart install script
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./install.bash
+        asset_name: install.bash
+        asset_content_type: application/octet-stream
+
+    # Publish deb to bintray stable repo
+    - shell: bash
+      run: curl -T ./dist/${{ steps.extract_debfile.outputs.debfile }} -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/stable/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/${{ steps.extract_debfile.outputs.debfile }};deb_distribution=xenial,bionic,focal,stretch,buster,bullseye;deb_component=main;deb_architecture=amd64;publish=1;override=1"
+
