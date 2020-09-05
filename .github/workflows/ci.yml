@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  unstable-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+      id: go
+
+    # Build and run tests
+    - run: |
+        go get -v -t -d ./...
+    - run: go build -v .
+    - run: go test -v ./...
+
+    # Build unstable package and publish to bintray
+    - shell: bash
+      run: make unstable
+    - shell: bash
+      run: echo "##[set-output name=version;]$(cat dist/version)"
+      id: extract_version
+    - shell: bash
+      run: echo "##[set-output name=debfile;]$(basename ./dist/*.deb)"
+      id: extract_debfile
+    - shell: bash
+      run: curl -T ./dist/${{ steps.extract_debfile.outputs.debfile }} -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/deb/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/${{ steps.extract_debfile.outputs.debfile }};deb_distribution=xenial,bionic,focal,stretch,buster,bullseye;deb_component=main;deb_architecture=amd64;publish=1;override=1"
+

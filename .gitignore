@@ -1,3 +1,6 @@
 .*.swp
 /dist
 cover.out
+/.gopath
+/.nfpm.yml
+**/*.deb

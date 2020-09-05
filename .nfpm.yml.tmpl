@@ -1,0 +1,23 @@
+name: wiregarden
+arch: amd64
+platform: linux
+
+version: ${VERSION}
+
+section: main
+priority: extra
+maintainer: Wiregarden Ops <ops@wiregarden.io>
+description: Grow your own private networks.
+vendor: Wiregarden
+homepage: https://wiregarden.io
+license: BSL 1.1
+
+depends:
+- wireguard-tools
+
+files:
+  ${HERE}/dist/wiregarden: /usr/bin/wiregarden
+  ${HERE}/LICENSE: /usr/share/doc/wiregarden/copyright
+
+empty_folders:
+- /var/lib/wiregarden

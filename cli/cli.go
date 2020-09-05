@@ -38,6 +38,8 @@ import (
 
 var debug bool
 
+var version string = "development"
+
 var CommandLine = cli.App{
 	Name: "wiregarden",
 	Flags: []cli.Flag{
@@ -262,6 +264,12 @@ var CommandLine = cli.App{
 				err = cl.DeleteNetwork(agent.WithToken(NewLoggerContext(c), token), network)
 			}
 			return errors.WithStack(err)
+		},
+	}, {
+		Name: "version",
+		Action: func(c *cli.Context) error {
+			fmt.Println(version)
+			return nil
 		},
 	}, {
 		Name:   "user",
