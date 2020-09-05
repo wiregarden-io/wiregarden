@@ -10,6 +10,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0  # need tags to calculate version
     - uses: actions/setup-go@v2
       with:
         go-version: ^1.13
