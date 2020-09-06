@@ -22,6 +22,8 @@ case $ID in
 				sudo apt-get install -y wiregarden wireguard-tools libnss-wiregarden
 				;;
 			16.04|18.04)
+				sudo apt-get update
+				sudo apt-get install -y software-properties-common
 				sudo add-apt-repository -y ppa:wireguard/wireguard
 				sudo apt-get update
 				sudo apt-get install -y wiregarden wireguard wireguard-tools libnss-wiregarden
