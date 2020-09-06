@@ -16,6 +16,7 @@ import (
 	qt "github.com/frankban/quicktest"
 
 	"github.com/wiregarden-io/wiregarden/agent/store"
+	"github.com/wiregarden-io/wiregarden/api"
 )
 
 func NewTestAgent(c *qt.C, cl Client, nm NetworkManager) (*Agent, *store.Store) {
@@ -26,7 +27,7 @@ func NewTestAgent(c *qt.C, cl Client, nm NetworkManager) (*Agent, *store.Store) 
 	c.Assert(err, qt.IsNil)
 	return &Agent{
 		dataDir: c.Mkdir(),
-		apiUrl:  "https://wiregarden.io/api",
+		apiUrl:  api.DefaultApiUrl,
 		st:      st,
 		newApi:  func(string) Client { return cl },
 		nm:      nm,
