@@ -14,7 +14,7 @@ function error_not_supported {
 case $ID in
 	ubuntu)
 		export DEBIAN_FRONTEND=non-interactive
-		echo "deb https://dl.bintray.com/wiregarden-io/${STAGE} ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/wiregarden.list
+		echo "deb https://dl.bintray.com/wiregarden-io/${STAGE} ${VERSION_CODENAME} main" | sudo tee /etc/apt/sources.list.d/wiregarden.list
 		sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 379CE192D401AB61
 		case $VERSION_ID in
 			20.04)
