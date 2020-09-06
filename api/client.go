@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	defaultApiUrl = "https://wiregarden.io/api"
+	DefaultApiUrl = "https://wiregarden.io/api"
 )
 
 type Client struct {
@@ -52,7 +52,7 @@ func RetryableError(err error) error {
 
 func New(apiUrl string) *Client {
 	if apiUrl == "" {
-		apiUrl = defaultApiUrl
+		apiUrl = DefaultApiUrl
 	}
 	return &Client{
 		Client: http.DefaultClient,

@@ -99,6 +99,9 @@ func defaultParams(dataDir, apiUrl string) (Params, error) {
 	if dataDir == "" {
 		dataDir = defaultDataDir
 	}
+	if apiUrl == "" {
+		apiUrl = api.DefaultApiUrl
+	}
 	err := checkDataDir(dataDir)
 	if err != nil {
 		return Params{}, errors.WithStack(err)
