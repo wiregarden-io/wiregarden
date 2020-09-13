@@ -25,7 +25,7 @@ import (
 	"github.com/wiregarden-io/wiregarden/wireguard"
 )
 
-const createPublicSchemaSql = `
+const createSchemaSql = `
 create table if not exists iface (
 	id integer primary key autoincrement,
 	created_at integer,
@@ -74,20 +74,24 @@ create table if not exists iface_log (
 	dirty bool not null default false,
     message text not null,
 	foreign key(iface_id) references iface(id)
-);
-`
+);`
 
 const createSecretSchemaSql = `
-create table if not exists iface_secrets (
+create table if not exists secret.iface_secrets (
 	iface_id integer primary key,
 	key blob not null,
 	device_token blob not null
 );
 `
 
+var zeroKey Key
+
 type secret []byte
 
 func encryptSecret(s []byte, k *Key) (secret, error) {
+	if *k == zeroKey {
+		return nil, errors.New("missing key")
+	}
 	var nonce [24]byte
 	if _, err := rand.Reader.Read(nonce[:]); err != nil {
 		return nil, errors.Wrap(err, "failed to read random bytes")
@@ -122,45 +126,51 @@ type Store struct {
 }
 
 func New(path string, key Key) (*Store, error) {
-	err := ensureDB(path, createPublicSchemaSql)
+	secretPath := path + ".secret"
+	db, err := ensureDB("file:"+path+"?_fk=true", "file:"+secretPath+"?_fk=true")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to ensure database %q", path)
+	}
+	_, err = db.Exec(createSchemaSql + createSecretSchemaSql)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create schema")
 	}
 	err = os.Chmod(path, 0644)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to set permissions on database %q", path)
 	}
-	secretPath := path + ".secret"
-	err = ensureDB(secretPath, createSecretSchemaSql)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to ensure database %q", secretPath)
-	}
 	err = os.Chmod(secretPath, 0600)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to set permissions on database %q", secretPath)
 	}
-	db, err := sql.Open("sqlite3", "file:"+path+"?_fk=true")
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open database %q", path)
-	}
-	_, err = db.Exec("attach database ? as secret", secretPath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to attach database %q", secretPath)
 	}
 	return &Store{db: db, key: key}, nil
 }
 
-func ensureDB(path, createSchemaSql string) error {
-	db, err := sql.Open("sqlite3", "file:"+path+"?_fk=true")
+func NewReadOnly(path string) (*Store, error) {
+	db, err := ensureDB("file:"+path+"?_fk=true&ro=true", "file::memory:?_fk=true")
 	if err != nil {
-		return errors.Wrapf(err, "failed to open database %q", path)
+		return nil, errors.Wrapf(err, "failed to ensure database %q", path)
 	}
-	defer db.Close()
-	_, err = db.Exec(createSchemaSql)
+	_, err = db.Exec(createSecretSchemaSql)
 	if err != nil {
-		return errors.Wrapf(err, "failed to create schema in database %q", path)
+		return nil, errors.Wrapf(err, "failed to create schema")
 	}
-	return nil
+	return &Store{db: db}, nil
+}
+
+func ensureDB(uri, secretUri string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", uri)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to open database %q", uri)
+	}
+	_, err = db.Exec("attach database ? as secret", secretUri)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to attach database %q", secretUri)
+	}
+	return db, nil
 }
 
 func (st *Store) Close() error {
@@ -289,7 +299,7 @@ select
 	i.net_id, i.net_name, i.net_cidr,
 	i.device_id, i.device_name, i.device_endpoint, i.device_addr, i.public_key,
 	i.listen_port, s.key, s.device_token
-from iface i join secret.iface_secrets s on (i.id = s.iface_id)
+from iface i left join secret.iface_secrets s on (i.id = s.iface_id)
 where id = ?`[1:], id).Scan(
 		&iface.ApiUrl,
 		&iface.Network.Id, &iface.Network.Name, &netCIDRText,
@@ -317,18 +327,20 @@ where id = ?`[1:], id).Scan(
 		return nil, errors.Wrapf(err, "failed to query interface: invalid public key %q", publicKeyText)
 	}
 	iface.Device.PublicKey = publicKey
-	// decrypt key
-	keyDecrypted, err := secret(keyBytes).decrypt(&s.key)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to query interface: failed to decrypt key")
+	if s.key != zeroKey {
+		// decrypt key
+		keyDecrypted, err := secret(keyBytes).decrypt(&s.key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to query interface: failed to decrypt key")
+		}
+		iface.Key = keyDecrypted
+		// decrypt device token
+		deviceToken, err := secret(deviceTokenBytes).decrypt(&s.key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to query interface: failed to decrypt key")
+		}
+		iface.DeviceToken = deviceToken
 	}
-	iface.Key = keyDecrypted
-	// decrypt device token
-	deviceToken, err := secret(deviceTokenBytes).decrypt(&s.key)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to query interface: failed to decrypt key")
-	}
-	iface.DeviceToken = deviceToken
 
 	rows, err := s.db.Query(`
 select
