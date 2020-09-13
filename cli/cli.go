@@ -136,6 +136,9 @@ var CommandLine = cli.App{
 				}
 				var lastErr error
 				for i := range ifaces {
+					if ifaces[i].Log.State == store.StateInterfaceDown {
+						continue
+					}
 					iface, err := a.RefreshInterface(ctx, &ifaces[i], "")
 					if err != nil {
 						zapctx.Warn(ctx, "refresh failed",
