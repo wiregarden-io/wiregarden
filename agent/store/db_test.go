@@ -38,7 +38,8 @@ func generateStoreKey(c *qt.C) store.Key {
 
 func TestInterfaceNoPeers(t *testing.T) {
 	c := qt.New(t)
-	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
+	dbPath := c.Mkdir() + "/db"
+	st, err := store.New(dbPath, generateStoreKey(c))
 	c.Assert(err, qt.IsNil)
 	defer st.Close()
 	k := generateKey(c)
@@ -70,6 +71,17 @@ func TestInterfaceNoPeers(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 
 	c.Assert(iface, qt.DeepEquals, iface2)
+
+	// Test read-only access
+	roSt, err := store.NewReadOnly(dbPath)
+	c.Assert(err, qt.IsNil)
+	ifaceRo, err := roSt.Interface(1)
+	c.Assert(err, qt.IsNil)
+	ifaceExpectRo := *iface
+	var zeroKey wireguard.Key
+	ifaceExpectRo.Key = zeroKey
+	ifaceExpectRo.DeviceToken = nil
+	c.Assert(ifaceRo, qt.DeepEquals, &ifaceExpectRo)
 }
 
 func TestInterfacePeers(t *testing.T) {
