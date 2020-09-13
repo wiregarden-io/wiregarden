@@ -170,6 +170,7 @@ var CommandLine = cli.App{
 				} else {
 					printStatus(ifaces, false, false)
 				}
+				ensureWatcherLaunch(ctx)
 				return lastErr
 			}
 			iface, err := a.RefreshDevice(ctx, c.String("name"), c.String("network"), c.String("endpoint"))
