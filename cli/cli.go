@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/gosuri/uitable"
 	"github.com/juju/zaputil/zapctx"
 	"github.com/nightlyone/lockfile"
@@ -212,6 +213,9 @@ var CommandLine = cli.App{
 		Hidden: true,
 		Flags:  []cli.Flag{},
 		Action: func(c *cli.Context) error {
+			if os.Getuid() != 0 {
+				return errors.New("must be run as root")
+			}
 			lf, err := lockfile.New(agent.WatcherLockPath())
 			if err != nil {
 				return errors.Wrap(err, "failed to create lock file handle")
@@ -234,41 +238,50 @@ var CommandLine = cli.App{
 			return nil
 		},
 	}, {
-		Name: "list",
-		Action: func(c *cli.Context) error {
-			cl := api.New(c.String("url"))
-			token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
-			if err != nil {
+		Name: "devices",
+		Subcommands: []*cli.Command{{
+			Name: "list",
+			Action: func(c *cli.Context) error {
+				cl := api.New(c.String("url"))
+				token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				resp, err := cl.ListDevices(agent.WithToken(NewLoggerContext(c), token))
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				return PrintJson(resp)
+			},
+		}, {
+			Name: "delete",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "device"},
+				&cli.StringFlag{Name: "network"},
+			},
+			Action: func(c *cli.Context) error {
+				if (c.String("device") == "") == (c.String("network") == "") {
+					return errors.New("specify one of --device or --network options")
+				}
+				cl := api.New(c.String("url"))
+				token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				if device := c.String("device"); device != "" {
+					if _, err := uuid.Parse(device); err != nil {
+						return errors.Wrap(err, "invalid device id")
+					}
+					err = cl.DeleteDevice(agent.WithToken(NewLoggerContext(c), token), device)
+				} else if network := c.String("network"); network != "" {
+					if _, err := uuid.Parse(network); err != nil {
+						return errors.Wrap(err, "invalid network id")
+					}
+					err = cl.DeleteNetwork(agent.WithToken(NewLoggerContext(c), token), network)
+				}
 				return errors.WithStack(err)
-			}
-			resp, err := cl.ListDevices(agent.WithToken(NewLoggerContext(c), token))
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			return PrintJson(resp)
-		},
-	}, {
-		Name: "delete",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "device"},
-			&cli.StringFlag{Name: "network"},
-		},
-		Action: func(c *cli.Context) error {
-			if (c.String("device") == "") == (c.String("network") == "") {
-				return errors.New("specify one of --device or --network options")
-			}
-			cl := api.New(c.String("url"))
-			token, err := GetToken("WIREGARDEN_SUBSCRIPTION", "Subscription")
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			if device := c.String("device"); device != "" {
-				err = cl.DeleteDevice(agent.WithToken(NewLoggerContext(c), token), device)
-			} else if network := c.String("network"); network != "" {
-				err = cl.DeleteNetwork(agent.WithToken(NewLoggerContext(c), token), network)
-			}
-			return errors.WithStack(err)
-		},
+			},
+		}},
 	}, {
 		Name: "version",
 		Action: func(c *cli.Context) error {
