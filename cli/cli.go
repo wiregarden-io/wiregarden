@@ -18,7 +18,6 @@ import (
 	stdlog "log"
 	"net"
 	"os"
-	"os/exec"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -75,7 +74,7 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			err = a.ApplyInterfaceChanges(iface)
+			err = a.ApplyInterfaceChanges(ctx, iface)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -83,7 +82,6 @@ var CommandLine = cli.App{
 				zap.String("device", iface.Device.Name),
 				zap.String("network", iface.Network.Name),
 				zap.String("address", iface.Device.Addr.String()))
-			ensureWatcherLaunch(ctx)
 			return nil
 		},
 	}, {
@@ -102,7 +100,7 @@ var CommandLine = cli.App{
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			err = a.ApplyInterfaceChanges(iface)
+			err = a.ApplyInterfaceChanges(ctx, iface)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -151,7 +149,7 @@ var CommandLine = cli.App{
 						lastErr = err
 						continue
 					}
-					err = a.ApplyInterfaceChanges(iface)
+					err = a.ApplyInterfaceChanges(ctx, iface)
 					if err != nil {
 						zapctx.Warn(ctx, "failed to apply interface changes",
 							zap.String("interface", ifaces[i].Name()),
@@ -171,21 +169,19 @@ var CommandLine = cli.App{
 				} else {
 					printStatus(ifaces, false, false)
 				}
-				ensureWatcherLaunch(ctx)
 				return lastErr
 			}
 			iface, err := a.RefreshDevice(ctx, c.String("name"), c.String("network"), c.String("endpoint"))
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			err = a.ApplyInterfaceChanges(iface)
+			err = a.ApplyInterfaceChanges(ctx, iface)
 			if err != nil {
 				return errors.WithStack(err)
 			}
 			zapctx.Info(ctx, "refreshed",
 				zap.String("device", iface.Device.Name),
 				zap.String("network", iface.Network.Name))
-			ensureWatcherLaunch(ctx)
 			return nil
 		},
 	}, {
@@ -195,7 +191,6 @@ var CommandLine = cli.App{
 			&cli.BoolFlag{Name: "down"},
 		},
 		Action: func(c *cli.Context) error {
-			ctx := NewLoggerContext(c)
 			a, err := agent.New(c.Path("datadir"), c.String("url"))
 			if err != nil {
 				return errors.WithStack(err)
@@ -205,7 +200,6 @@ var CommandLine = cli.App{
 				return errors.WithStack(err)
 			}
 			printStatus(ifaces, c.Bool("json"), c.Bool("down"))
-			ensureWatcherLaunch(ctx)
 			return nil
 		},
 	}, {
@@ -419,28 +413,4 @@ func printStatus(ifaces []store.InterfaceWithLog, json, down bool) {
 		}
 		fmt.Println(table)
 	}
-}
-
-func ensureWatcherLaunch(ctx context.Context) error {
-	var args []string
-	if debug {
-		args = append(args, "--debug")
-	}
-	args = append(args, "daemon", "run")
-	zapctx.Debug(ctx, "launching watcher", zap.Strings("args", args))
-	cmd := exec.Command(os.Args[0], args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Foreground: false,
-		Setsid:     true,
-	}
-	zapctx.Debug(ctx, "cmd", zap.Reflect("cmd", cmd))
-	if err := cmd.Start(); err != nil {
-		zapctx.Warn(ctx, "failed to launch watcher", zap.Error(err))
-		return errors.Wrap(err, "failed to launch watcher")
-	}
-	if err := cmd.Process.Release(); err != nil {
-		zapctx.Warn(ctx, "failed to background watcher", zap.Error(err))
-		return errors.Wrap(err, "failed to background watcher")
-	}
-	return nil
 }

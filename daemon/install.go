@@ -17,7 +17,7 @@ const (
 Description=Wiregarden agent
 
 [Service]
-ExecStart=/usr/bin/wiregarden daemon run
+ExecStart={{.BinaryPath}} daemon run
 Restart=on-failure
 RestartSec=1
 User=root
@@ -26,7 +26,7 @@ User=root
 WantedBy=multi-user.target
 `
 	servicePath = "/lib/systemd/system/wiregarden.service"
-	systemctl   = "/usr/bin/systemctl"
+	systemctl   = "/bin/systemctl"
 )
 
 func Install() error {
@@ -39,7 +39,15 @@ func Install() error {
 		return errors.Wrap(err, "failed to open systemd service file")
 	}
 	defer f.Close()
-	err = t.Execute(f, struct{}{})
+	binPath, err := os.Executable()
+	if err != nil {
+		return errors.Wrap(err, "failed to read executable path of running process")
+	}
+	err = t.Execute(f, struct {
+		BinaryPath string
+	}{
+		BinaryPath: binPath,
+	})
 	if err != nil {
 		return errors.Wrap(err, "failed to render systemd service file")
 	}
@@ -51,7 +59,7 @@ func Install() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to enable service")
 	}
-	err = startService()
+	err = restartService()
 	if err != nil {
 		return errors.Wrap(err, "failed to start service")
 	}
@@ -66,8 +74,8 @@ func enableService() error {
 	return exec.Command(systemctl, "enable", "wiregarden").Run()
 }
 
-func startService() error {
-	return exec.Command(systemctl, "start", "wiregarden").Run()
+func restartService() error {
+	return exec.Command(systemctl, "restart", "wiregarden").Run()
 }
 
 func Uninstall(ctx context.Context) error {

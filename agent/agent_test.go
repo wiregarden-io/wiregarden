@@ -70,7 +70,7 @@ func TestJoinApply(t *testing.T) {
 	c.Assert(ifaceLog.Log.Operation, qt.Equals, store.OpJoinDevice)
 	c.Assert(ifaceLog.Log.Dirty, qt.Equals, true)
 
-	err = a.ApplyInterfaceChanges(iface)
+	err = a.ApplyInterfaceChanges(ctx, iface)
 	c.Assert(err, qt.IsNil)
 	ifaceLog, err = st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
@@ -148,7 +148,7 @@ func TestJoinRefreshDepart(t *testing.T) {
 	c.Assert(ifaceLogRefresh.Log.State, qt.Equals, store.StateInterfaceUp)
 	c.Assert(ifaceLogRefresh.Log.Dirty, qt.IsTrue)
 
-	err = a.ApplyInterfaceChanges(&ifaceLogRefresh.Interface)
+	err = a.ApplyInterfaceChanges(ctx, &ifaceLogRefresh.Interface)
 	c.Assert(err, qt.IsNil)
 
 	// Now depart device
@@ -160,7 +160,7 @@ func TestJoinRefreshDepart(t *testing.T) {
 	c.Assert(ifaceLogDelete.Log.Operation, qt.Equals, store.OpDeleteDevice)
 	c.Assert(ifaceLogDelete.Log.State, qt.Equals, store.StateInterfaceDeparted)
 	c.Assert(ifaceLogDelete.Log.Dirty, qt.IsTrue)
-	err = a.ApplyInterfaceChanges(iface)
+	err = a.ApplyInterfaceChanges(ctx, iface)
 	c.Assert(err, qt.IsNil)
 	lastLogDown, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
@@ -212,7 +212,7 @@ func TestJoinRefreshRevoked(t *testing.T) {
 	c.Assert(ifaceLogRefresh.Log.State, qt.Equals, store.StateInterfaceRevoked)
 	c.Assert(ifaceLogRefresh.Log.Dirty, qt.IsTrue)
 
-	err = a.ApplyInterfaceChanges(&ifaceLogRefresh.Interface)
+	err = a.ApplyInterfaceChanges(ctx, &ifaceLogRefresh.Interface)
 	c.Assert(err, qt.IsNil)
 
 	lastLog, err := st.LastLog(iface)

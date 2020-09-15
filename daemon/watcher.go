@@ -130,6 +130,11 @@ func (d *Watcher) ensureWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	zapctx.Debug(ctx, "ensure watch", zap.Int64("id", id))
+	if _, ok := d.watchers[id]; ok {
+		zapctx.Debug(ctx, "already watching", zap.Int64("id", id))
+		return
+	}
+
 	iface, err := d.agent.Interface(id)
 	if err != nil {
 		zapctx.Debug(ctx, "failed to look up interface", zap.Int64("id", id), zap.Error(err))
@@ -217,7 +222,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 					zap.String("network", iface.Network.Name))
 				return backoff.Permanent(errors.WithStack(err))
 			}
-			err = d.agent.ApplyInterfaceChanges(iface)
+			err = d.agent.ApplyInterfaceChanges(ctx, iface)
 			if err != nil {
 				return errors.WithStack(err)
 			}
