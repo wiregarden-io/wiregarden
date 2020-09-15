@@ -100,7 +100,7 @@ func New(dataDir, apiUrl string, options ...AgentOption) (*Agent, error) {
 }
 
 func NotifyWatcher(a *Agent) {
-	a.wc = &watcherClient{}
+	a.wc = newWatcherClient()
 }
 
 const defaultDataDir = "/var/lib/wiregarden"
@@ -353,7 +353,7 @@ func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWith
 	}
 	// If there is an unapplied operation pending, let's try to apply it now.
 	if iface.Log.Dirty {
-		err := a.ApplyInterfaceChanges(&iface.Interface)
+		err := a.ApplyInterfaceChanges(ctx, &iface.Interface)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -530,7 +530,7 @@ func (a *Agent) Interfaces() ([]store.InterfaceWithLog, error) {
 	return ifaces, nil
 }
 
-func (a *Agent) ApplyInterfaceChanges(iface *store.Interface) error {
+func (a *Agent) ApplyInterfaceChanges(ctx context.Context, iface *store.Interface) error {
 	if a.readOnly {
 		return errors.WithStack(ErrWritePermissions)
 	}
@@ -548,6 +548,10 @@ func (a *Agent) ApplyInterfaceChanges(iface *store.Interface) error {
 			}
 		}
 		err = store.AppendLogTx(tx, iface, nextLog.Operation, nextLog.State, nextLog.Dirty, nextLog.Message)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		a.wc.applyState(ctx, iface.Id, nextLog.State)
 		return errors.WithStack(err)
 	})
 	if err != nil {
