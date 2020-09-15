@@ -33,8 +33,8 @@ import (
 	"github.com/wiregarden-io/wiregarden/agent"
 	"github.com/wiregarden-io/wiregarden/agent/store"
 	"github.com/wiregarden-io/wiregarden/api"
+	"github.com/wiregarden-io/wiregarden/daemon"
 	"github.com/wiregarden-io/wiregarden/log"
-	"github.com/wiregarden-io/wiregarden/watcher"
 )
 
 var debug bool
@@ -209,34 +209,56 @@ var CommandLine = cli.App{
 			return nil
 		},
 	}, {
-		Name:   "watcher",
+		Name:   "daemon",
 		Hidden: true,
-		Flags:  []cli.Flag{},
-		Action: func(c *cli.Context) error {
-			if os.Getuid() != 0 {
-				return errors.New("must be run as root")
-			}
-			lf, err := lockfile.New(agent.WatcherLockPath())
-			if err != nil {
-				return errors.Wrap(err, "failed to create lock file handle")
-			}
-			if err := lf.TryLock(); err != nil {
-				return errors.Wrap(err, "failed to obtain lock file")
-			}
-			a, err := agent.New(c.Path("datadir"), c.String("url"))
-			if err != nil {
-				return errors.Wrap(err, "failed to create agent")
-			}
-			w := watcher.New(a)
-			ctx := NewLoggerContext(c)
-			err = w.Start(ctx)
-			if err != nil {
-				return errors.Wrap(err, "failed to start watcher")
-			}
-			<-chan struct{}(nil)
-			w.Wait(ctx)
-			return nil
-		},
+		Subcommands: []*cli.Command{{
+			Name:  "run",
+			Flags: []cli.Flag{},
+			Action: func(c *cli.Context) error {
+				if os.Getuid() != 0 {
+					return errors.New("must be run as root")
+				}
+				lf, err := lockfile.New(agent.WatcherLockPath())
+				if err != nil {
+					return errors.Wrap(err, "failed to create lock file handle")
+				}
+				if err := lf.TryLock(); err != nil {
+					return errors.Wrap(err, "failed to obtain lock file")
+				}
+				a, err := agent.New(c.Path("datadir"), c.String("url"))
+				if err != nil {
+					return errors.Wrap(err, "failed to create agent")
+				}
+				w := daemon.New(a)
+				ctx := NewLoggerContext(c)
+				err = w.Start(ctx)
+				if err != nil {
+					return errors.Wrap(err, "failed to start daemon")
+				}
+				<-chan struct{}(nil)
+				w.Wait(ctx)
+				return nil
+			},
+		}, {
+			Name:  "install",
+			Flags: []cli.Flag{},
+			Action: func(c *cli.Context) error {
+				if os.Getuid() != 0 {
+					return errors.New("must be run as root")
+				}
+				return errors.WithStack(daemon.Install())
+			},
+		}, {
+			Name:  "uninstall",
+			Flags: []cli.Flag{},
+			Action: func(c *cli.Context) error {
+				if os.Getuid() != 0 {
+					return errors.New("must be run as root")
+				}
+				ctx := NewLoggerContext(c)
+				return errors.WithStack(daemon.Uninstall(ctx))
+			},
+		}},
 	}, {
 		Name: "devices",
 		Subcommands: []*cli.Command{{
@@ -404,7 +426,7 @@ func ensureWatcherLaunch(ctx context.Context) error {
 	if debug {
 		args = append(args, "--debug")
 	}
-	args = append(args, "watcher")
+	args = append(args, "daemon", "run")
 	zapctx.Debug(ctx, "launching watcher", zap.Strings("args", args))
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
