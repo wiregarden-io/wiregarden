@@ -2,7 +2,7 @@
 GIT_COMMIT := $(shell git rev-parse --short HEAD)
 NOW := $(shell date +%s)
 CURRENT_VERSION := $(shell git tag -l | sort --version-sort -r | head -1 | sed 's/^v//')+$(NOW)-$(GIT_COMMIT)
-NEXT_VERSION := $(shell ./scripts/version-next.bash)~$(NOW)-$(GIT_COMMIT)
+NEXT_VERSION := $(shell ./scripts/version-next.bash || echo "0.0.0")~$(NOW)-$(GIT_COMMIT)
 GOPATH := $(shell pwd)/.gopath
 GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)

@@ -9,6 +9,7 @@ require (
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/frankban/quicktest v1.10.0
 	github.com/go-chi/chi v4.1.2+incompatible
+	github.com/google/uuid v1.1.2
 	github.com/gosuri/uitable v0.0.4
 	github.com/juju/zaputil v0.0.0-20190326175239-ef53049637ac
 	github.com/mattn/go-colorable v0.1.6 // indirect
