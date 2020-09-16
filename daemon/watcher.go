@@ -80,6 +80,9 @@ func (d *Watcher) Start(ctx context.Context) error {
 		return errors.Wrap(err, "failed to get interfaces")
 	}
 	for i := range ifaces {
+		if ifaces[i].Log.State == store.StateInterfaceDown {
+			continue
+		}
 		wCtx, wCancel := context.WithCancel(ctx)
 		go d.watchInterfaceEvents(wCtx, wCancel, &ifaces[i].Interface)
 		d.watchers[ifaces[i].Id] = wCancel
