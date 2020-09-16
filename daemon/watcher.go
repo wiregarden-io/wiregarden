@@ -209,7 +209,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			}
 
 			zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
-			iface, err = d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
+			ifaceNext, err := d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
 			if err != nil {
 				if errors.Is(err, agent.ErrInterfaceStateInvalid) {
 					zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
@@ -222,13 +222,13 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 					zap.String("network", iface.Network.Name))
 				return backoff.Permanent(errors.WithStack(err))
 			}
-			err = d.agent.ApplyInterfaceChanges(ctx, iface)
+			err = d.agent.ApplyInterfaceChanges(ctx, ifaceNext)
 			if err != nil {
 				return errors.WithStack(err)
 			}
 			zapctx.Info(ctx, "refreshed on api server change",
-				zap.String("device", iface.Device.Name),
-				zap.String("network", iface.Network.Name))
+				zap.String("device", ifaceNext.Device.Name),
+				zap.String("network", ifaceNext.Network.Name))
 		}
 	}, backoff.NewExponentialBackOff())
 	zapctx.Error(ctx, "watcher error", zap.Error(err))
