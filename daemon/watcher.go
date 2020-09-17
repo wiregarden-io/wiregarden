@@ -83,6 +83,11 @@ func (d *Watcher) Start(ctx context.Context) error {
 		if ifaces[i].Log.State == store.StateInterfaceDown {
 			continue
 		}
+		err := d.agent.EnsureInterfaceState(&ifaces[i].Interface, &ifaces[i].Log)
+		if err != nil {
+			zapctx.Error(ctx, "failed to ensure interface state",
+				zap.String("interface", ifaces[i].Interface.Name()), zap.Error(err))
+		}
 		wCtx, wCancel := context.WithCancel(ctx)
 		go d.watchInterfaceEvents(wCtx, wCancel, &ifaces[i].Interface)
 		d.watchers[ifaces[i].Id] = wCancel

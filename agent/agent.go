@@ -560,6 +560,11 @@ func (a *Agent) ApplyInterfaceChanges(ctx context.Context, iface *store.Interfac
 	return nil
 }
 
+func (a *Agent) EnsureInterfaceState(iface *store.Interface, log *store.InterfaceLog) error {
+	_, err := a.applyInterfaceChanges(iface, log)
+	return errors.WithStack(err)
+}
+
 func (a *Agent) applyInterfaceChanges(iface *store.Interface, lastLog *store.InterfaceLog) (*store.InterfaceLog, error) {
 	switch lastLog.State {
 	case store.StateInterfaceJoined, store.StateInterfaceUp:
