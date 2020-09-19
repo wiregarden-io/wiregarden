@@ -25,11 +25,21 @@ dist/wiregarden:
 	-mkdir -p dist
 	go build -ldflags="-X github.com/wiregarden-io/wiregarden/cli.version=$(VERSION)" -a -o dist/wiregarden .
 
-deb:
+deb: dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb
+
+dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb:
 	VERSION="$(VERSION)" HERE=/pkg envsubst < .nfpm.yml.tmpl > .nfpm.yml
 	docker run -u $(shell id -u) --rm \
 		-v $(shell pwd):/pkg \
 		goreleaser/nfpm pkg --config /pkg/.nfpm.yml --target /pkg/dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb
+
+rpm: dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).rpm
+
+dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).rpm:
+	VERSION="$(VERSION)" HERE=/pkg envsubst < .nfpm.yml.tmpl > .nfpm.yml
+	docker run -u $(shell id -u) --rm \
+		-v $(shell pwd):/pkg \
+		goreleaser/nfpm pkg --config /pkg/.nfpm.yml --target /pkg/dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).rpm
 
 .PHONY: clean
 clean:
