@@ -18,6 +18,7 @@ import (
 	stdlog "log"
 	"net"
 	"os"
+	"sort"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -380,7 +381,24 @@ func ReadPassword(prompt string) (string, error) {
 	return string(pass), nil
 }
 
+type sortedInterfaces []store.InterfaceWithLog
+
+func (si sortedInterfaces) Len() int      { return len(si) }
+func (si sortedInterfaces) Swap(i, j int) { si[i], si[j] = si[j], si[i] }
+func (si sortedInterfaces) Less(i, j int) bool {
+	return si[i].Network.Name+si[i].Device.Name < si[j].Network.Name+"."+si[j].Device.Name
+}
+
+type sortedPeers []api.Device
+
+func (sp sortedPeers) Len() int      { return len(sp) }
+func (sp sortedPeers) Swap(i, j int) { sp[i], sp[j] = sp[j], sp[i] }
+func (sp sortedPeers) Less(i, j int) bool {
+	return sp[i].Id < sp[j].Id
+}
+
 func printStatus(ifaces []store.InterfaceWithLog, json, down bool) {
+	sort.Sort(sortedInterfaces(ifaces))
 	if json {
 		PrintJson(ifaces)
 	}
@@ -403,13 +421,14 @@ func printStatus(ifaces []store.InterfaceWithLog, json, down bool) {
 		fmt.Println()
 		table := uitable.New()
 		table.MaxColWidth = 50
-		table.AddRow("Network", "Peer", "Address", "Endpoint", "Key")
-		table.AddRow(iface.Network.Name, iface.Device.Name+" (this host)",
-			iface.Device.Addr.String(), iface.Device.Endpoint,
+		table.AddRow("Peer", "Address", "Endpoint", "Key")
+		table.AddRow(iface.Device.Name+"."+iface.Network.Name+" (this host)",
+			iface.Device.Addr.IP.String(), iface.Device.Endpoint,
 			iface.Device.PublicKey.String())
+		sort.Sort(sortedPeers(iface.Peers))
 		for _, peer := range iface.Peers {
-			table.AddRow(iface.Network.Name, peer.Name,
-				peer.Addr.String(), peer.Endpoint, peer.PublicKey.String())
+			table.AddRow(peer.Name+"."+iface.Network.Name,
+				peer.Addr.IP.String(), peer.Endpoint, peer.PublicKey.String())
 		}
 		fmt.Println(table)
 	}
