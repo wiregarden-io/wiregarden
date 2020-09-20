@@ -20,6 +20,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/cenkalti/backoff"
 	"github.com/go-chi/chi"
@@ -184,6 +185,9 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 	defer d.wg.Done()
 	zapctx.Debug(ctx, "start watching interface", zap.Int64("id", iface.Id))
 	defer zapctx.Debug(ctx, "stop watching interface", zap.Int64("id", iface.Id))
+	expBackoff := backoff.NewExponentialBackOff()
+	expBackoff.MaxInterval = 5 * time.Minute
+	expBackoff.MaxElapsedTime = 0 // never stop retrying, until we hit a permanant error
 	err := backoff.Retry(func() error {
 		cl := &http.Client{}
 		req, err := http.NewRequest("GET", iface.ApiUrl+"/v1/network/events?stream="+iface.Network.Id, nil)
