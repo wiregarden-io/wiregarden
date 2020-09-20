@@ -242,6 +242,6 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 				zap.String("device", ifaceNext.Device.Name),
 				zap.String("network", ifaceNext.Network.Name))
 		}
-	}, backoff.NewExponentialBackOff())
+	}, expBackoff)
 	zapctx.Error(ctx, "watcher error", zap.Error(err))
 }
