@@ -189,7 +189,7 @@ func TestJoinRefreshRevoked(t *testing.T) {
 			Peers: []api.Device{},
 			Token: []byte("device-token"),
 		},
-		refreshErr: api.ErrApiForbidden,
+		refreshErr: api.ErrApiRevoked,
 	}, &mockNetworkManager{})
 	ctx := testContext()
 	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")

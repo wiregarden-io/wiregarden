@@ -373,7 +373,7 @@ func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWith
 		Endpoint: endpoint,
 	})
 	if err != nil {
-		if errors.Is(err, api.ErrApiForbidden) {
+		if errors.Is(err, api.ErrApiRevoked) {
 			return a.revokedInterface(ctx, iface)
 		}
 		return nil, errors.WithStack(err)
