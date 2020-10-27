@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-chi/chi"
 	"github.com/juju/zaputil/zapctx"
 	"github.com/pkg/errors"
@@ -223,6 +223,10 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
 			ifaceNext, err := d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
 			if err != nil {
+				if errors.Is(err, agent.ErrInterfaceStateChanging) {
+					// Stale transaction is retryable
+					return errors.WithStack(err)
+				}
 				if errors.Is(err, agent.ErrInterfaceStateInvalid) {
 					zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
 					cancel()
@@ -241,6 +245,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			zapctx.Info(ctx, "refreshed on api server change",
 				zap.String("device", ifaceNext.Device.Name),
 				zap.String("network", ifaceNext.Network.Name))
+			expBackoff.Reset()
 		}
 	}, expBackoff)
 	zapctx.Error(ctx, "watcher error", zap.Error(err))
