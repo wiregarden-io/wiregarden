@@ -3,7 +3,6 @@ module github.com/wiregarden-io/wiregarden
 go 1.13
 
 require (
-	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cenkalti/backoff/v4 v4.0.2
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/fatih/color v1.9.0 // indirect
