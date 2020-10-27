@@ -47,7 +47,7 @@ var (
 
 func RetryableError(err error) error {
 	if errors.Is(err, ErrApiClient) {
-		return &backoff.PermanentError{Err: err}
+		return backoff.Permanent(err)
 	}
 	return err
 }

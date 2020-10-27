@@ -13,7 +13,9 @@ package store_test
 import (
 	"crypto/rand"
 	"database/sql"
+	"sync"
 	"testing"
+	"time"
 
 	qt "github.com/frankban/quicktest"
 	"github.com/pkg/errors"
@@ -249,6 +251,62 @@ func TestInterfaceUpsertUniqueConflict(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 
 	c.Assert(iface, qt.DeepEquals, iface2)
+}
+
+func TestRetryLocked(t *testing.T) {
+	c := qt.New(t)
+	st, err := store.New(c.Mkdir()+"/db", generateStoreKey(c))
+	c.Assert(err, qt.IsNil)
+	defer st.Close()
+	k := generateKey(c)
+	iface := &store.Interface{
+		ApiUrl: "https://wiregarden.io/api",
+		Network: api.Network{
+			Id:   "test-net-id",
+			Name: "test-net",
+			CIDR: parseAddress(c, "1.2.3.0/24"),
+		},
+		Device: api.Device{
+			Id:        "test-device-id",
+			Name:      "test-device",
+			Endpoint:  "example.com",
+			Addr:      parseAddress(c, "1.2.3.4/24"),
+			PublicKey: k.PublicKey(),
+		},
+		Peers: []api.Device{{
+			Id:        "test-peer-1-id",
+			Name:      "test-peer-1",
+			Addr:      parseAddress(c, "1.2.3.5/24"),
+			PublicKey: generateKey(c).PublicKey(),
+		}},
+	}
+	err = st.EnsureInterface(iface)
+	c.Assert(err, qt.IsNil)
+
+	// Induce database locked errors in two concurrent goroutines, assert that
+	// they retry successfully.
+	ch := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	f := func(delay int) {
+		defer wg.Done()
+		<-ch
+		err := st.WithLog(iface, func(tx *sql.Tx, lastLog *store.InterfaceLog) error {
+			for i := 0; i < 5; i++ {
+				time.Sleep(time.Duration(delay) * time.Millisecond)
+				_, err := tx.Exec(`update iface set updated_at = ?`, time.Now().Unix())
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		c.Assert(err, qt.IsNil)
+	}
+	go f(17)
+	go f(23)
+	close(ch)
+	wg.Wait()
 }
 
 func parseAddress(c *qt.C, addr string) wireguard.Address {

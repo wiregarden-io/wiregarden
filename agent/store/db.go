@@ -17,7 +17,8 @@ import (
 	"os"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/cenkalti/backoff/v4"
+	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/nacl/secretbox"
 
@@ -195,6 +196,13 @@ func (s *Store) EnsureInterface(iface *Interface) error {
 }
 
 func (s *Store) EnsureInterfaceTx(tx *sql.Tx, iface *Interface) error {
+	return backoff.Retry(func() error {
+		err := s.ensureInterfaceTx(tx, iface)
+		return retryableError(err)
+	}, defaultRetryBackOff())
+}
+
+func (s *Store) ensureInterfaceTx(tx *sql.Tx, iface *Interface) error {
 	now := time.Now().Unix()
 	id := sql.NullInt64{}
 	if iface.Id > 0 {
@@ -392,6 +400,34 @@ where device_name = ? and net_name = ?`[1:], deviceName, networkName).Scan(&id)
 }
 
 func (s *Store) WithLog(iface *Interface, f func(tx *sql.Tx, lastLog *InterfaceLog) error) error {
+	return backoff.Retry(func() error {
+		err := s.withLog(iface, f)
+		return retryableError(err)
+	}, defaultRetryBackOff())
+}
+
+func retryableError(err error) error {
+	if err == nil {
+		return err
+	}
+	if cause := errors.Cause(err); cause != nil {
+		if sqliteErr, ok := cause.(sqlite3.Error); ok {
+			switch sqliteErr.Code {
+			case sqlite3.ErrBusy, sqlite3.ErrLocked:
+				return err
+			}
+		}
+	}
+	return backoff.Permanent(err)
+}
+
+func defaultRetryBackOff() backoff.BackOff {
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 10 * time.Second
+	return b
+}
+
+func (s *Store) withLog(iface *Interface, f func(tx *sql.Tx, lastLog *InterfaceLog) error) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return errors.Wrap(err, "failed to begin transaction")
