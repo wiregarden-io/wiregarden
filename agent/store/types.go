@@ -15,15 +15,13 @@ import (
 	"net"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/wiregarden-io/wiregarden/api"
 	"github.com/wiregarden-io/wiregarden/wireguard"
 )
 
 var (
-	ErrInterfaceStatePending     = errors.New("interface state has not been applied")
-	ErrInterfaceOperationInvalid = errors.New("operation not valid for interface state")
+	ErrInterfaceStatePending     = fmt.Errorf("interface state has not been applied")
+	ErrInterfaceOperationInvalid = fmt.Errorf("operation not valid for interface state")
 )
 
 type Interface struct {
