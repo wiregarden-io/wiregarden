@@ -26,6 +26,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/juju/zaputil/zapctx"
 	"github.com/pkg/errors"
+	"github.com/vishvananda/netlink"
 	"go.uber.org/zap"
 
 	"github.com/wiregarden-io/wiregarden/agent"
@@ -36,7 +37,6 @@ import (
 type Watcher struct {
 	server *http.Server
 
-	wg       sync.WaitGroup
 	mu       sync.Mutex
 	agent    *agent.Agent
 	watchers map[int64]func()
@@ -94,11 +94,37 @@ func (d *Watcher) Start(ctx context.Context) error {
 		d.watchers[ifaces[i].Id] = wCancel
 	}
 
+	go d.watchAddressChanges(ctx, func(ctx context.Context, update netlink.AddrUpdate, updatedLink netlink.Link) {
+		ctx = zapctx.WithFields(ctx, zap.Reflect("update", update))
+		if updatedLink == nil {
+			// Ignore changes where we fail to look up the link by index. This
+			// seems to happen when a link is removed.
+			zapctx.Debug(ctx, "ignoring update without link information")
+			return
+		}
+		linkAttrs := updatedLink.Attrs()
+		ctx = zapctx.WithFields(ctx, zap.String("type", updatedLink.Type()))
+		if updatedLink.Type() == "wireguard" {
+			zapctx.Debug(ctx, "ignoring wireguard address change", zap.Reflect("attrs", linkAttrs))
+			return
+		}
+		if update.LinkAddress.IP.To4() == nil {
+			// TODO: for some reason, the IPv6 address seems to "change" on the
+			// host interface without much reason. wiregarden doesn't support
+			// IPv6 yet so we can just ignore these for now, but this needs
+			// further investigation.
+			zapctx.Debug(ctx, "ignoring IPv6 address change", zap.Reflect("attrs", linkAttrs))
+			return
+		}
+		zapctx.Info(ctx, "network address change detected, exiting")
+		os.Exit(1)
+	})
+
 	zapctx.Debug(ctx, "watcher started")
 	return nil
 }
 
-func (d *Watcher) Stop(ctx context.Context) {
+func (d *Watcher) Shutdown(ctx context.Context) {
 	d.mu.Lock()
 	for _, cancel := range d.watchers {
 		cancel()
@@ -110,21 +136,6 @@ func (d *Watcher) Stop(ctx context.Context) {
 	}
 	d.mu.Unlock()
 	zapctx.Debug(ctx, "watcher stopped")
-}
-
-func (d *Watcher) Wait(ctx context.Context) bool {
-	defer d.Stop(ctx)
-	ch := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(ch)
-	}()
-	select {
-	case <-ch:
-		return true
-	case <-ctx.Done():
-		return false
-	}
 }
 
 func (d *Watcher) ensureWatch(w http.ResponseWriter, r *http.Request) {
@@ -181,8 +192,6 @@ func (d *Watcher) deleteWatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface *store.Interface) {
-	d.wg.Add(1)
-	defer d.wg.Done()
 	zapctx.Debug(ctx, "start watching interface", zap.Int64("id", iface.Id))
 	defer zapctx.Debug(ctx, "stop watching interface", zap.Int64("id", iface.Id))
 	expBackoff := backoff.NewExponentialBackOff()
@@ -220,33 +229,73 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 				return errors.WithStack(err)
 			}
 
-			zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
-			ifaceNext, err := d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
-			if err != nil {
-				if errors.Is(err, agent.ErrInterfaceStateChanging) {
-					// Stale transaction is retryable
-					return errors.WithStack(err)
-				}
-				if errors.Is(err, agent.ErrInterfaceStateInvalid) {
-					zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
-					cancel()
+			err = func() error {
+				// Hold the mutex so that only one interface is updated at a
+				// time, and we don't exit during a network interface change.
+				d.mu.Lock()
+				defer d.mu.Unlock()
+
+				zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
+				ifaceNext, err := d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
+				if err != nil {
+					if errors.Is(err, agent.ErrInterfaceStateChanging) {
+						// Stale transaction is retryable
+						return errors.WithStack(err)
+					}
+					if errors.Is(err, agent.ErrInterfaceStateInvalid) {
+						zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
+						cancel()
+						return backoff.Permanent(errors.WithStack(err))
+					}
+					zapctx.Warn(ctx, "refresh failed",
+						zap.Error(err),
+						zap.String("device", iface.Device.Name),
+						zap.String("network", iface.Network.Name))
 					return backoff.Permanent(errors.WithStack(err))
 				}
-				zapctx.Warn(ctx, "refresh failed",
-					zap.Error(err),
-					zap.String("device", iface.Device.Name),
-					zap.String("network", iface.Network.Name))
-				return backoff.Permanent(errors.WithStack(err))
-			}
-			err = d.agent.ApplyInterfaceChanges(ctx, ifaceNext)
+				err = d.agent.ApplyInterfaceChanges(ctx, ifaceNext)
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				zapctx.Info(ctx, "refreshed on api server change",
+					zap.String("device", ifaceNext.Device.Name),
+					zap.String("network", ifaceNext.Network.Name))
+				expBackoff.Reset()
+				return nil
+			}()
 			if err != nil {
-				return errors.WithStack(err)
+				return err
 			}
-			zapctx.Info(ctx, "refreshed on api server change",
-				zap.String("device", ifaceNext.Device.Name),
-				zap.String("network", ifaceNext.Network.Name))
-			expBackoff.Reset()
 		}
 	}, expBackoff)
 	zapctx.Error(ctx, "watcher error", zap.Error(err))
+}
+
+type AddressChangeFunc func(context.Context, netlink.AddrUpdate, netlink.Link)
+
+func (d *Watcher) watchAddressChanges(ctx context.Context, f AddressChangeFunc) error {
+	updateCh := make(chan netlink.AddrUpdate)
+	doneCh := make(chan struct{})
+	err := netlink.AddrSubscribe(updateCh, doneCh)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to netlink changes")
+	}
+	for {
+		select {
+		case update := <-updateCh:
+			var updatedLink netlink.Link
+			if update.NewAddr {
+				updatedLink, err = netlink.LinkByIndex(update.LinkIndex)
+				if err != nil {
+					zapctx.Error(ctx, "failed to lookup link",
+						zap.Int("index", update.LinkIndex), zap.Error(err))
+				}
+			}
+			d.mu.Lock()
+			f(ctx, update, updatedLink)
+			d.mu.Unlock()
+		case <-ctx.Done():
+			close(doneCh)
+		}
+	}
 }

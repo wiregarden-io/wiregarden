@@ -32,10 +32,7 @@ func WithLog(ctx context.Context, debug bool) context.Context {
 	if err != nil {
 		logger = zapctx.Default
 	}
-	return zapctx.WithLogger(ctx, logger.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-		return zapcore.NewTee(c, newJournalCore(debug))
-	})))
-	//return zapctx.WithLogger(ctx, logger.WithOptions(zap.Hooks(journalHook)))
+	return zapctx.WithLogger(ctx, logger)
 }
 
 func journalHook(e zapcore.Entry) error {
