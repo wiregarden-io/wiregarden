@@ -230,8 +230,8 @@ var CommandLine = cli.App{
 				if err != nil {
 					return errors.Wrap(err, "failed to start daemon")
 				}
-				<-chan struct{}(nil)
-				w.Wait(ctx)
+				<-ctx.Done()
+				w.Shutdown(ctx)
 				return nil
 			},
 		}, {
