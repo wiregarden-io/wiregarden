@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/juju/zaputil/zapctx"
 	"github.com/wiregarden-io/wiregarden/agent/store"
@@ -22,11 +23,18 @@ import (
 )
 
 func WatcherLockPath() string {
-	return "/var/run/.wiregarden.watcher.lock"
+	return runDir() + "/.wiregarden.watcher.lock"
 }
 
 func WatcherSockPath() string {
-	return "/var/run/.wiregarden.watcher.sock"
+	return runDir() + "/.wiregarden.watcher.sock"
+}
+
+func runDir() string {
+	if snapData := os.Getenv("SNAP_DATA"); snapData != "" {
+		return snapData
+	}
+	return "/var/run"
 }
 
 type watcherClient struct {

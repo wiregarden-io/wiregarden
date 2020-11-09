@@ -20,6 +20,14 @@ import (
 	"github.com/wiregarden-io/wiregarden/agent/store"
 )
 
+var wireguardInstallPrefix = ""
+
+func init() {
+	if snap := os.Getenv("SNAP"); snap != "" {
+		wireguardInstallPrefix = snap
+	}
+}
+
 type wireguardManager struct {
 	dataDir string
 }
@@ -45,7 +53,7 @@ func (m *wireguardManager) EnsureInterface(iface *store.Interface) error {
 
 func (m *wireguardManager) RemoveInterface(iface *store.Interface) error {
 	confFilename := m.dataDir + "/" + iface.Name() + ".conf"
-	cmd := exec.Command("/usr/bin/wg-quick", "down", confFilename)
+	cmd := exec.Command(wireguardInstallPrefix+"/usr/bin/wg-quick", "down", confFilename)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run() // might error if already down
@@ -60,14 +68,14 @@ func (m *wireguardManager) RemoveInterface(iface *store.Interface) error {
 }
 
 func (*wireguardManager) downUp(cfgPath string) error {
-	cmd := exec.Command("/usr/bin/wg-quick", "down", cfgPath)
+	cmd := exec.Command(wireguardInstallPrefix+"/usr/bin/wg-quick", "down", cfgPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run() // might error if already down
 	if err != nil {
 		log.Println(err)
 	}
-	cmd = exec.Command("/usr/bin/wg-quick", "up", cfgPath)
+	cmd = exec.Command(wireguardInstallPrefix+"/usr/bin/wg-quick", "up", cfgPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

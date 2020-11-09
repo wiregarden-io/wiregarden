@@ -1,0 +1,25 @@
+name: wiregarden
+version: '0.0'
+summary: Grow your own private networks.
+description: |
+  Wiregarden is a quick, easy way to build virtual private networks (VPNs) with
+  the Wireguard protocol.
+confinement: strict
+grade: stable
+base: core20
+parts:
+  wiregarden:
+    plugin: go
+    source: .
+    override-build: |-
+        export GOPATH=$(mktemp -d)
+        go build -o $SNAPCRAFT_PART_INSTALL/wiregarden .
+    stage-packages:
+    - wireguard-tools
+apps:
+  wiregarden:
+    command: wiregarden
+    plugs:
+    - network
+    - network-bind
+    - network-control

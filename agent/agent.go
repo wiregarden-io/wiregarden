@@ -103,7 +103,13 @@ func NotifyWatcher(a *Agent) {
 	a.wc = newWatcherClient()
 }
 
-const defaultDataDir = "/var/lib/wiregarden"
+var defaultDataDir = "/var/lib/wiregarden"
+
+func init() {
+	if snapCommon := os.Getenv("SNAP_COMMON"); snapCommon != "" {
+		defaultDataDir = snapCommon + "/data"
+	}
+}
 
 func defaultParams(dataDir, apiUrl string) (Params, error) {
 	if dataDir == "" {
