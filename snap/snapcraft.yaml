@@ -1,5 +1,5 @@
 name: wiregarden
-version: git
+adopt-info: wiregarden
 summary: Grow your own private networks.
 description: |
   Wiregarden is a quick, easy way to build virtual private networks (VPNs) with
@@ -10,7 +10,8 @@ base: core20
 parts:
   wiregarden:
     plugin: go
-    source: .
+    source: https://github.com/wiregarden-io/wiregarden.git
+    source-type: git
     override-build: |-
         # Build wiregarden
         export GOPATH=$(mktemp -d)
