@@ -1,5 +1,5 @@
 name: wiregarden
-version: '0.0'
+version: git
 summary: Grow your own private networks.
 description: |
   Wiregarden is a quick, easy way to build virtual private networks (VPNs) with
@@ -12,13 +12,26 @@ parts:
     plugin: go
     source: .
     override-build: |-
+        # Build wiregarden
         export GOPATH=$(mktemp -d)
         go build -o $SNAPCRAFT_PART_INSTALL/wiregarden .
+        # Set snap version from latest tag
+        GIT_COMMIT=$(git rev-parse --short HEAD)
+        NOW=$(date +%s)
+        CURRENT_VERSION=$(git tag -l | sort --version-sort -r | head -1 | sed 's/^v//')+${NOW}-${GIT_COMMIT}
+        snapcraftctl set-version $CURRENT_VERSION
     stage-packages:
     - wireguard-tools
 apps:
   wiregarden:
     command: wiregarden
+    plugs:
+    - network
+    - network-bind
+    - network-control
+  watcher:
+    command: wiregarden daemon run
+    daemon: simple
     plugs:
     - network
     - network-bind
