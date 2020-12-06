@@ -231,3 +231,16 @@ func (c *Client) GetSubscriptionToken(ctx context.Context, plan string) (*GetSub
 	}
 	return &subTokenResp, nil
 }
+
+func (c *Client) ListSubscriptions(ctx context.Context) (*ListSubscriptionsResponse, error) {
+	resp, err := c.Request(ctx, "GET", "/v1/subscription", nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+	var listSubsResp ListSubscriptionsResponse
+	err = c.Response(resp, &listSubsResp)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to decode response")
+	}
+	return &listSubsResp, nil
+}

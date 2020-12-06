@@ -24,11 +24,19 @@ type ListSubscriptionsResponse struct {
 }
 
 type GetSubscriptionResponse struct {
-	Id        string     `json:"id"`
+	Id        string      `json:"id"`
+	Created   time.Time   `json:"created"`
+	NotBefore *time.Time  `json:"notBefore"`
+	NotAfter  *time.Time  `json:"notAfter"`
+	Plan      PlanDoc     `json:"plan"`
+	Tokens    []TokenInfo `json:"tokens"`
+}
+
+type TokenInfo struct {
+	Token     []byte     `json:"token"`
 	Created   time.Time  `json:"created"`
 	NotBefore *time.Time `json:"notBefore"`
 	NotAfter  *time.Time `json:"notAfter"`
-	Plan      PlanDoc    `json:"plan"`
 }
 
 type PlanDoc struct {
