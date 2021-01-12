@@ -31,7 +31,7 @@ dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb:
 	VERSION="$(VERSION)" HERE=/pkg envsubst < .nfpm.yml.tmpl > .nfpm.yml
 	docker run -u $(shell id -u) --rm \
 		-v $(shell pwd):/pkg \
-		goreleaser/nfpm pkg --config /pkg/.nfpm.yml --target /pkg/dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb
+		goreleaser/nfpm:v1.10 pkg --config /pkg/.nfpm.yml --target /pkg/dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).deb
 
 rpm: dist/wiregarden_$(VERSION)_$(GOOS)_$(GOARCH).rpm
 

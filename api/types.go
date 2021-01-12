@@ -40,10 +40,11 @@ type TokenInfo struct {
 }
 
 type PlanDoc struct {
-	Name          string `json:"name"`
-	Free          bool   `json:"free"`
-	DeviceLimit   int    `json:"deviceLimit"`
-	ExpiresInDays int    `json:"expiresInDays"`
+	Name                    string `json:"name"`
+	Free                    bool   `json:"free"`
+	DeviceLimit             int    `json:"deviceLimit,omitempty"`
+	ExpiresInDays           int    `json:"expiresInDays,omitempty"`
+	MaxDeviceUpdatesPerHour int    `json:"maxDeviceRefreshesPerHour,omitempty"`
 }
 
 type GetSubscriptionTokenResponse struct {
