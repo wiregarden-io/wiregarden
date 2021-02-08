@@ -326,6 +326,21 @@ var CommandLine = cli.App{
 				}
 				return PrintJson(resp)
 			},
+		}, {
+			Name:    "list-subscriptions",
+			Aliases: []string{"list-subs"},
+			Action: func(c *cli.Context) error {
+				cl := api.New(c.String("url"))
+				token, err := GetToken("WIREGARDEN_USER", "User")
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				resp, err := cl.ListSubscriptions(agent.WithToken(NewLoggerContext(c), token))
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				return PrintJson(resp)
+			},
 		}},
 	}},
 }

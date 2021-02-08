@@ -24,18 +24,27 @@ type ListSubscriptionsResponse struct {
 }
 
 type GetSubscriptionResponse struct {
-	Id        string     `json:"id"`
+	Id        string      `json:"id"`
+	Created   time.Time   `json:"created"`
+	NotBefore *time.Time  `json:"notBefore"`
+	NotAfter  *time.Time  `json:"notAfter"`
+	Plan      PlanDoc     `json:"plan"`
+	Tokens    []TokenInfo `json:"tokens"`
+}
+
+type TokenInfo struct {
+	Token     []byte     `json:"token"`
 	Created   time.Time  `json:"created"`
 	NotBefore *time.Time `json:"notBefore"`
 	NotAfter  *time.Time `json:"notAfter"`
-	Plan      PlanDoc    `json:"plan"`
 }
 
 type PlanDoc struct {
-	Name          string `json:"name"`
-	Free          bool   `json:"free"`
-	DeviceLimit   int    `json:"deviceLimit"`
-	ExpiresInDays int    `json:"expiresInDays"`
+	Name                    string `json:"name"`
+	Free                    bool   `json:"free"`
+	DeviceLimit             int    `json:"deviceLimit,omitempty"`
+	ExpiresInDays           int    `json:"expiresInDays,omitempty"`
+	MaxDeviceUpdatesPerHour int    `json:"maxDeviceRefreshesPerHour,omitempty"`
 }
 
 type GetSubscriptionTokenResponse struct {
