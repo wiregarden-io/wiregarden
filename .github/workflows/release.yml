@@ -19,20 +19,12 @@ jobs:
       id: go
 
     # Build and run tests
+    # TODO: cross-compile for arm platforms, probably in makefile
     - run: |
         go get -v -t -d ./...
-    - run: go build -v .
+    - run: go build -a -v -ldflags="-extldflags=-static" -tags netgo,usergo,sqlite_omit_load_extension .
     - run: go test -v ./...
-
-    # Build stable package and publish to bintray and github
-    - shell: bash
-      run: make stable
-    - shell: bash
-      run: echo "##[set-output name=version;]$(cat dist/version)"
-      id: extract_version
-    - shell: bash
-      run: echo "##[set-output name=debfile;]$(basename ./dist/*.deb)"
-      id: extract_debfile
+    - run: cp $GOPATH/bin/wiregarden ./wiregarden
 
     - name: Create Release
       id: create_release
@@ -44,35 +36,12 @@ jobs:
         release_name: Release ${{ github.ref }}
         draft: false
         prerelease: false
-    - name: Upload Release Asset - deb
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/${{ steps.extract_debfile.outputs.debfile }}
-        asset_name: ${{ steps.extract_debfile.outputs.debfile }}
-        asset_content_type: application/octet-stream
     - name: Upload Release Asset - binary
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/wiregarden
+        asset_path: ./wiregarden
         asset_name: wiregarden_linux_amd64
         asset_content_type: application/octet-stream
-    - name: Upload Release Asset - quickstart install script
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./install.bash
-        asset_name: install.bash
-        asset_content_type: application/octet-stream
-
-    # Publish deb to bintray stable repo
-    - shell: bash
-      run: curl -T ./dist/${{ steps.extract_debfile.outputs.debfile }} -ucmars232:${{ secrets.BINTRAY_API_KEY }} "https://api.bintray.com/content/wiregarden-io/stable/wiregarden/${{ steps.extract_version.outputs.version }}/pool/w/${{ steps.extract_debfile.outputs.debfile }};deb_distribution=xenial,bionic,focal,stretch,buster,bullseye;deb_component=main;deb_architecture=amd64;publish=1;override=1"
-
