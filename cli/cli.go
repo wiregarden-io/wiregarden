@@ -27,6 +27,7 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh/terminal"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/wiregarden-io/wiregarden/api"
 	"github.com/wiregarden-io/wiregarden/daemon"
 	"github.com/wiregarden-io/wiregarden/log"
+	"github.com/wiregarden-io/wiregarden/setup"
 )
 
 var debug bool
@@ -202,6 +204,36 @@ var CommandLine = cli.App{
 			}
 			printStatus(ifaces, c.Bool("json"), c.Bool("down"))
 			return nil
+		},
+	}, {
+		Name: "setup",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "nss-plugin", Value: true},
+		},
+		Action: func(c *cli.Context) error {
+			if os.Getuid() != 0 {
+				return errors.New("must be run as root")
+			}
+			ctx := NewLoggerContext(c)
+			var merr []error
+			err := setup.EnsureWireguardInstalled(ctx)
+			if err != nil {
+				merr = append(merr, err)
+				fmt.Println(setup.ManualPackageInstructions)
+			}
+			if c.Bool("nss-plugin") {
+				err = setup.EnsureNssPluginInstalled(ctx)
+				if err != nil {
+					merr = append(merr, err)
+					fmt.Println(setup.ManualNssInstructions)
+				}
+			}
+			err = daemon.Install()
+			if err != nil {
+				merr = append(merr, err)
+				fmt.Println(daemon.FailedServiceNotice)
+			}
+			return multierr.Combine(merr...)
 		},
 	}, {
 		Name:   "daemon",

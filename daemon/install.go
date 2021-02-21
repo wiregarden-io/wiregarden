@@ -25,14 +25,29 @@ User=root
 [Install]
 WantedBy=multi-user.target
 `
-	servicePath = "/lib/systemd/system/wiregarden.service"
-	systemctl   = "/bin/systemctl"
+	serviceFilename = "wiregarden.service"
+	systemctl       = "systemctl"
+
+	FailedServiceNotice = `
+Failed to install wiregarden as a systemd service. Wiregarden can still be
+used, but this machine will not receive automatic updates to network topology.
+Use "wiregarden refresh" to poll for these changes and apply them periodically.
+`
 )
+
+var servicePaths = []string{
+	"/lib/systemd/system",
+	"/etc/systemd/system",
+}
 
 func Install() error {
 	t, err := template.New("service").Parse(serviceTmpl)
 	if err != nil {
 		return errors.Wrap(err, "failed to parse systemd service template")
+	}
+	servicePath := findServicePath()
+	if servicePath == "" {
+		return errors.Errorf("failed to find systemd service path")
 	}
 	f, err := os.Create(servicePath)
 	if err != nil {
@@ -66,6 +81,15 @@ func Install() error {
 	return nil
 }
 
+func findServicePath() string {
+	for i := range servicePaths {
+		if st, err := os.Stat(servicePaths[i]); err == nil && st.IsDir() {
+			return servicePaths[i] + "/" + serviceFilename
+		}
+	}
+	return ""
+}
+
 func daemonReload() error {
 	return exec.Command(systemctl, "daemon-reload").Run()
 }
@@ -87,9 +111,11 @@ func Uninstall(ctx context.Context) error {
 	if err != nil {
 		zapctx.Debug(ctx, "failed to disable service", zap.Error(err))
 	}
-	err = os.RemoveAll(servicePath)
-	if err != nil {
-		return errors.Wrap(err, "failed to remove service file")
+	for i := range servicePaths {
+		err = os.RemoveAll(servicePaths[i] + "/" + serviceFilename)
+		if err != nil {
+			return errors.Wrap(err, "failed to remove service file")
+		}
 	}
 	err = daemonReload()
 	if err != nil {

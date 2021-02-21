@@ -17,5 +17,5 @@ jobs:
     # Build and run tests
     - run: |
         go get -v -t -d ./...
-    - run: go build -v .
     - run: go test -v ./...
+    - run: go build -a -v -ldflags="-extldflags=-static" -tags netgo,usergo,sqlite_omit_load_extension .
