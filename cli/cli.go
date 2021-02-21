@@ -207,6 +207,9 @@ var CommandLine = cli.App{
 		},
 	}, {
 		Name: "setup",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "nss-plugin", Value: true},
+		},
 		Action: func(c *cli.Context) error {
 			if os.Getuid() != 0 {
 				return errors.New("must be run as root")
@@ -217,6 +220,13 @@ var CommandLine = cli.App{
 			if err != nil {
 				merr = append(merr, err)
 				fmt.Println(setup.ManualPackageInstructions)
+			}
+			if c.Bool("nss-plugin") {
+				err = setup.EnsureNssPluginInstalled(ctx)
+				if err != nil {
+					merr = append(merr, err)
+					fmt.Println(setup.ManualNssInstructions)
+				}
 			}
 			err = daemon.Install()
 			if err != nil {
