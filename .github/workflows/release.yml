@@ -22,9 +22,8 @@ jobs:
     # TODO: cross-compile for arm platforms, probably in makefile
     - run: |
         go get -v -t -d ./...
-    - run: go build -a -v -ldflags="-extldflags=-static" -tags netgo,usergo,sqlite_omit_load_extension .
     - run: go test -v ./...
-    - run: cp $GOPATH/bin/wiregarden ./wiregarden
+    - run: go build -a -v -ldflags="-extldflags=-static" -tags netgo,usergo,sqlite_omit_load_extension .
 
     - name: Create Release
       id: create_release
