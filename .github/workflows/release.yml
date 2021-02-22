@@ -20,10 +20,15 @@ jobs:
 
     # Build and run tests
     # TODO: cross-compile for arm platforms, probably in makefile
+    - run: |-
+        echo "##[set-output name=version;]$(git tag -l | sort --version-sort -r | head -1 | sed 's/^v//')"
+        echo "##[set-output name=now;]$(date +%s)"
+        echo "##[set-output name=commit;]$(git rev-parse --short HEAD)"
+      id: getver
     - run: |
         go get -v -t -d ./...
     - run: go test -v ./...
-    - run: go build -a -v -ldflags="-extldflags=-static" -tags netgo,usergo,sqlite_omit_load_extension .
+    - run: go build -a -v -ldflags="-extldflags=-static -X github.com/wiregarden-io/wiregarden/cli.version=${{steps.getver.outputs.version}}+${{steps.getver.outputs.now}}-${{steps.getver.outputs.commit}}" -tags netgo,usergo,sqlite_omit_load_extension .
 
     - name: Create Release
       id: create_release
