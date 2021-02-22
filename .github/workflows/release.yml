@@ -29,6 +29,7 @@ jobs:
         go get -v -t -d ./...
     - run: go test -v ./...
     - run: go build -a -v -ldflags="-extldflags=-static -X github.com/wiregarden-io/wiregarden/cli.version=${{steps.getver.outputs.version}}+${{steps.getver.outputs.now}}-${{steps.getver.outputs.commit}}" -tags netgo,usergo,sqlite_omit_load_extension .
+    - run: sha256sum ./wiregarden > SHA256SUMS
 
     - name: Create Release
       id: create_release
@@ -49,3 +50,11 @@ jobs:
         asset_path: ./wiregarden
         asset_name: wiregarden_linux_amd64
         asset_content_type: application/octet-stream
+    - uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./SHA256SUMS
+        asset_name: SHA256SUMS
+        asset_content_type: text/plain
