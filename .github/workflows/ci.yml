@@ -27,9 +27,14 @@ jobs:
         go get -v -t -d ./...
     - run: go test -v ./...
     - run: go build -v -ldflags="-extldflags=-static -X github.com/wiregarden-io/wiregarden/cli.version=${{steps.getver.outputs.version}}~${{steps.getver.outputs.now}}-${{steps.getver.outputs.commit}}" -tags netgo,usergo,sqlite_omit_load_extension .
+    - run: sha256sum ./wiregarden > SHA256SUMS
 
     # Store binary as build artifact
     - uses: actions/upload-artifact@v2
       with:
         name: wiregarden_linux_amd64
         path: ./wiregarden
+    - uses: actions/upload-artifact@v2
+      with:
+        name: SHA256SUMS
+        path: ./SHA256SUMS
