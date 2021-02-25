@@ -223,9 +223,10 @@ var CommandLine = cli.App{
 			}
 			if c.Bool("nss-plugin") {
 				err = setup.EnsureNssPluginInstalled(ctx)
-				if err != nil {
-					merr = append(merr, err)
+				if errors.Is(err, setup.ErrUnsupportedPlatform) {
 					fmt.Println(setup.ManualNssInstructions)
+				} else {
+					merr = append(merr, err)
 				}
 			}
 			err = daemon.Install()
@@ -233,6 +234,7 @@ var CommandLine = cli.App{
 				merr = append(merr, err)
 				fmt.Println(daemon.FailedServiceNotice)
 			}
+			fmt.Println("There were errors during the installation:")
 			return multierr.Combine(merr...)
 		},
 	}, {

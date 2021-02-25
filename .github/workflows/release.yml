@@ -50,6 +50,15 @@ jobs:
         asset_path: ./wiregarden
         asset_name: wiregarden_linux_amd64
         asset_content_type: application/octet-stream
+    - name: Upload install script
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./install.bash
+        asset_name: install.bash
+        asset_content_type: application/octet-stream
     - uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
