@@ -2,39 +2,41 @@
 
 set -eu
 
-. /etc/os-release
-
-STAGE=${STAGE:-stable}
-
-function error_not_supported {
-	echo "Sorry, $ID $VERSION_ID is not yet supported by the quickstart install script."
+if [ "$(id -u)" != "0" ]; then
+	echo "This script must be run as root."
 	exit 1
-}
+fi
 
-case $ID in
-	ubuntu)
-		export DEBIAN_FRONTEND=non-interactive
-		echo "deb https://dl.bintray.com/wiregarden-io/${STAGE} ${VERSION_CODENAME} main" | sudo tee /etc/apt/sources.list.d/wiregarden.list
-		sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 379CE192D401AB61
-		case $VERSION_ID in
-			20.04)
-				sudo apt-get update
-				sudo apt-get install -y wiregarden wireguard-tools libnss-wiregarden
-				;;
-			16.04|18.04)
-				sudo apt-get update
-				sudo apt-get install -y software-properties-common
-				sudo add-apt-repository -y ppa:wireguard/wireguard
-				sudo apt-get update
-				sudo apt-get install -y wiregarden wireguard wireguard-tools libnss-wiregarden
-				;;
-			*)
-				error_not_supported
-				;;
-		esac
-		;;
-	*)
-		error_not_supported
-		;;
-esac
+if [ "$(uname -m)" != "x86_64" ]; then
+	echo "Sorry, your architecture is not yet supported."
+	echo "Please contact@wiregarden.io for assistance."
+	exit 1
+fi
+
+which wget || (
+	echo "wget not found, please install and try again"
+	exit 1
+)
+
+BIN_URL="https://github.com/wiregarden-io/wiregarden/releases/latest/download/wiregarden_linux_amd64"
+SUMS_URL="https://github.com/wiregarden-io/wiregarden/releases/latest/download/SHA256SUMS"
+
+tmpbin=$(mktemp)
+tmpsums=$(mktemp)
+trap "rm -rf $tmpbin $tmpsums" EXIT
+wget -O $tmpbin $BIN_URL
+wget -O $tmpsums $SUMS_URL
+
+verify_sha256=$(awk '{print $1}' $tmpsums)
+actual_sha256=$(sha256sum $tmpbin | awk '{print $1}')
+if [ "$verify_sha256" != "$actual_sha256" ]; then
+	echo "Binary does not match expected sha256. Please try again?"
+	exit 1
+fi
+
+systemctl stop wiregarden || true
+cp $tmpbin /usr/local/bin/wiregarden
+chmod +x /usr/local/bin/wiregarden
+/usr/local/bin/wiregarden setup
+echo "Wiregarden installation complete. See https://wiregarden.io/networks for next steps."
 

@@ -82,7 +82,6 @@ Failed to install wireguard. You might need to enable backports and try again.
 See https://backports.debian.org/Instructions/.
 `)
 		}
-		err = installNssDeb(ctx)
 	case "fedora":
 		err = execAll(
 			exec.Command("dnf", "-y", "install", "wireguard-tools"),
@@ -92,7 +91,6 @@ See https://backports.debian.org/Instructions/.
 			exec.Command("apt-get", "update"),
 			exec.Command("apt-get", "install", "-y", "wireguard"),
 		)
-		err = installNssDeb(ctx)
 	default:
 		if strings.HasPrefix(id, "opensuse-") {
 			err = execAll(
