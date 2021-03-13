@@ -236,7 +236,7 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 				defer d.mu.Unlock()
 
 				zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
-				ifaceNext, err := d.agent.RefreshDevice(ctx, iface.Device.Name, iface.Network.Name, "")
+				ifaceNext, err := d.agent.RefreshDevice(ctx, agent.JoinArgs{Name: iface.Device.Name, Network: iface.Network.Name})
 				if err != nil {
 					if errors.Is(err, agent.ErrInterfaceStateChanging) {
 						// Stale transaction is retryable
