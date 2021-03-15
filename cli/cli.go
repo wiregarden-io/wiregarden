@@ -244,7 +244,9 @@ var CommandLine = cli.App{
 				merr = append(merr, err)
 				fmt.Println(daemon.FailedServiceNotice)
 			}
-			fmt.Println("There were errors during the installation:")
+			if len(merr) > 0 {
+				fmt.Println("There were errors during the installation:")
+			}
 			return multierr.Combine(merr...)
 		},
 	}, {
