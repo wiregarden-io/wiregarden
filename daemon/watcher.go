@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -191,14 +192,23 @@ func (d *Watcher) deleteWatch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+const initialReadTimeout = 15 * time.Second
+const maxReadTimeout = 1 * time.Hour
+
 func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface *store.Interface) {
 	zapctx.Debug(ctx, "start watching interface", zap.Int64("id", iface.Id))
 	defer zapctx.Debug(ctx, "stop watching interface", zap.Int64("id", iface.Id))
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.MaxInterval = 5 * time.Minute
 	expBackoff.MaxElapsedTime = 0 // never stop retrying, until we hit a permanant error
+	readTimeout := initialReadTimeout
+	refreshAfter := time.Now().Add(readTimeout)
 	err := backoff.Retry(func() error {
-		cl := &http.Client{}
+		cl := &http.Client{
+			Transport: &http.Transport{
+				IdleConnTimeout: readTimeout,
+			},
+		}
 		req, err := http.NewRequest("GET", iface.ApiUrl+"/v1/network/events?stream="+iface.Network.Id, nil)
 		if err != nil {
 			zapctx.Error(ctx, "failed to create request", zap.Error(err))
@@ -220,11 +230,54 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 			return errors.Errorf("error response from api, code=%d: %q", resp.StatusCode, contents)
 		}
 		dec := json.NewDecoder(resp.Body)
+		refresh := func() error {
+			ifaceNext, err := d.agent.RefreshDevice(ctx, agent.JoinArgs{Name: iface.Device.Name, Network: iface.Network.Name})
+			if err != nil {
+				if errors.Is(err, agent.ErrInterfaceStateChanging) {
+					// Stale transaction is retryable
+					return errors.WithStack(err)
+				}
+				if errors.Is(err, agent.ErrInterfaceStateInvalid) {
+					zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
+					cancel()
+					return backoff.Permanent(errors.WithStack(err))
+				}
+				zapctx.Warn(ctx, "refresh failed",
+					zap.Error(err),
+					zap.String("device", iface.Device.Name),
+					zap.String("network", iface.Network.Name))
+				return backoff.Permanent(errors.WithStack(err))
+			}
+			err = d.agent.ApplyInterfaceChanges(ctx, ifaceNext)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			zapctx.Info(ctx, "refreshed on api server change",
+				zap.String("device", ifaceNext.Device.Name),
+				zap.String("network", ifaceNext.Network.Name))
+			expBackoff.Reset()
+			return nil
+		}
 		for {
 			var ev struct{}
 			err := dec.Decode(&ev)
 			if err != nil {
-				// TODO: handle EOF?
+				if errors.Is(err, io.ErrUnexpectedEOF) {
+					if time.Now().After(refreshAfter) {
+						readTimeout *= 2
+						if readTimeout > maxReadTimeout {
+							readTimeout = maxReadTimeout
+						}
+						refreshAfter = time.Now().Add(readTimeout)
+						zapctx.Debug(ctx, "EOF", zap.Time("next_refresh", refreshAfter))
+						if err := refresh(); err != nil {
+							// Return any errors refreshing (which might exit the backoff retry)
+							return err
+						}
+					}
+					// Otherwise return the EOF (retriable)
+					return err
+				}
 				zapctx.Error(ctx, "decode event failed", zap.Error(err))
 				return errors.WithStack(err)
 			}
@@ -234,38 +287,14 @@ func (d *Watcher) watchInterfaceEvents(ctx context.Context, cancel func(), iface
 				// time, and we don't exit during a network interface change.
 				d.mu.Lock()
 				defer d.mu.Unlock()
-
 				zapctx.Debug(ctx, "received event", zap.Reflect("event", ev))
-				ifaceNext, err := d.agent.RefreshDevice(ctx, agent.JoinArgs{Name: iface.Device.Name, Network: iface.Network.Name})
-				if err != nil {
-					if errors.Is(err, agent.ErrInterfaceStateChanging) {
-						// Stale transaction is retryable
-						return errors.WithStack(err)
-					}
-					if errors.Is(err, agent.ErrInterfaceStateInvalid) {
-						zapctx.Info(ctx, "interface no longer refreshable", zap.Error(err))
-						cancel()
-						return backoff.Permanent(errors.WithStack(err))
-					}
-					zapctx.Warn(ctx, "refresh failed",
-						zap.Error(err),
-						zap.String("device", iface.Device.Name),
-						zap.String("network", iface.Network.Name))
-					return backoff.Permanent(errors.WithStack(err))
-				}
-				err = d.agent.ApplyInterfaceChanges(ctx, ifaceNext)
-				if err != nil {
-					return errors.WithStack(err)
-				}
-				zapctx.Info(ctx, "refreshed on api server change",
-					zap.String("device", ifaceNext.Device.Name),
-					zap.String("network", ifaceNext.Network.Name))
-				expBackoff.Reset()
-				return nil
+				return refresh()
 			}()
 			if err != nil {
 				return err
 			}
+			// Reset the read timeout
+			readTimeout = initialReadTimeout
 		}
 	}, expBackoff)
 	zapctx.Error(ctx, "watcher error", zap.Error(err))

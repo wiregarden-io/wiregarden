@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -231,6 +232,13 @@ func (a *Agent) JoinDevice(ctx context.Context, args JoinArgs) (*store.Interface
 
 	if args.Network == "" {
 		args.Network = "default"
+	}
+
+	if args.Endpoint != "" {
+		_, _, err := net.SplitHostPort(args.Endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid endpoint %q", args.Endpoint)
+		}
 	}
 
 	var staticAddr *wireguard.Address
