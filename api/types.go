@@ -63,10 +63,12 @@ type JoinDeviceRequest struct {
 	Key wireguard.Key `json:"key"`
 	// Public endpoint where this device can be reached, if possible.
 	Endpoint string `json:"endpoint,omitempty"`
-	// Available address on this device. Only used if starting a new network.
+	// Available address on this device. Used if starting a new network.
 	AvailableAddr wireguard.Address `json:"availableAddr,omitempty"`
 	// Available port on this device.
 	AvailablePort int `json:"availablePort,omitempty"`
+	// Request a specific static address for this device.
+	StaticAddr *wireguard.Address `json:"staticAddr,omitempty"`
 }
 
 func (r *JoinDeviceRequest) Valid() error {

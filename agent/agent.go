@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -210,31 +211,53 @@ func generateStoreKey(keyPath string) (store.Key, error) {
 	return k, nil
 }
 
-func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoint string) (*store.Interface, error) {
+type JoinArgs struct {
+	Name     string
+	Network  string
+	Endpoint string
+	Address  string
+}
+
+func (a *Agent) JoinDevice(ctx context.Context, args JoinArgs) (*store.Interface, error) {
 	if a.readOnly {
 		return nil, errors.WithStack(ErrWritePermissions)
 	}
 	var err error
-	if deviceName == "" {
-		deviceName, err = os.Hostname()
+	if args.Name == "" {
+		args.Name, err = os.Hostname()
 		if err != nil {
 			return nil, errors.Wrap(err, "cannot determine hostname, node name is required")
 		}
 	}
 
-	if networkName == "" {
-		networkName = "default"
+	if args.Network == "" {
+		args.Network = "default"
+	}
+
+	if args.Endpoint != "" {
+		_, _, err := net.SplitHostPort(args.Endpoint)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid endpoint %q", args.Endpoint)
+		}
+	}
+
+	var staticAddr *wireguard.Address
+	if args.Address != "" {
+		staticAddr, err = wg.ParseAddress(args.Address)
+		if err != nil {
+			return nil, errors.Wrap(err, "invalid address requested")
+		}
 	}
 
 	var machineId []byte
 	var key wireguard.Key
-	var availAddr *wireguard.Address
+	var addr *wireguard.Address
 	var listenPort int
 
-	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
+	ifaceLog, err := a.st.LastLogByDevice(args.Name, args.Network)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.Wrapf(err, "failed to query last log by device %q network %q", deviceName, networkName)
+			return nil, errors.Wrapf(err, "failed to query last log by device %q network %q", args.Name, args.Network)
 		}
 		// No prior interface, let's create a new one to join.
 		machineId, err = MachineId()
@@ -245,16 +268,21 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to generate key")
 		}
-		// TODO: only really need to do this if we're starting a new network.
-		availNet, err := network.RandomSubnetV4()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to find an available subnet")
+		if staticAddr == nil {
+			// Choose a new address from a randomly selected subnet
+			// TODO: only really need to do this if we're starting a new network.
+			availNet, err := network.RandomSubnetV4()
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to find an available subnet")
+			}
+			addr, err = wg.ParseAddress(availNet)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to parse network %q", availNet)
+			}
+		} else {
+			addr = staticAddr
 		}
-		availAddr, err = wg.ParseAddress(availNet)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse network %q", availNet)
-		}
-		listenPort, err = findListenPort(endpoint)
+		listenPort, err = findListenPort(args.Endpoint)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to find an available listen port")
 		}
@@ -268,7 +296,7 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 			return nil, errors.Wrap(err, "cannot determine machine ID")
 		}
 		key = ifaceLog.Key
-		availAddr = &ifaceLog.Device.Addr
+		addr = &ifaceLog.Device.Addr
 		listenPort = ifaceLog.ListenPort
 	}
 
@@ -276,13 +304,14 @@ func (a *Agent) JoinDevice(ctx context.Context, deviceName, networkName, endpoin
 
 	cl := a.newApi(a.apiUrl)
 	joinResp, err := cl.JoinDevice(ctx, &api.JoinDeviceRequest{
-		Name:          deviceName,
-		Network:       networkName,
+		Name:          args.Name,
+		Network:       args.Network,
 		MachineId:     machineId,
 		Key:           key.PublicKey(),
-		Endpoint:      endpoint,
-		AvailableAddr: *availAddr,
+		Endpoint:      args.Endpoint,
+		AvailableAddr: *addr,
 		AvailablePort: listenPort,
+		StaticAddr:    staticAddr,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to join device to network")
@@ -327,30 +356,30 @@ func (a *Agent) ifaceJoinDeviceResponse(iface *store.Interface, joinResp *api.Jo
 	}
 }
 
-func (a *Agent) RefreshDevice(ctx context.Context, deviceName, networkName, endpoint string) (*store.Interface, error) {
+func (a *Agent) RefreshDevice(ctx context.Context, args JoinArgs) (*store.Interface, error) {
 	if a.readOnly {
 		return nil, errors.WithStack(ErrWritePermissions)
 	}
 	var err error
-	if deviceName == "" {
-		deviceName, err = os.Hostname()
+	if args.Name == "" {
+		args.Name, err = os.Hostname()
 		if err != nil {
 			return nil, errors.Wrap(err, "cannot determine hostname, node name is required")
 		}
 	}
 
-	if networkName == "" {
-		networkName = "default"
+	if args.Network == "" {
+		args.Network = "default"
 	}
 
-	ifaceLog, err := a.st.LastLogByDevice(deviceName, networkName)
+	ifaceLog, err := a.st.LastLogByDevice(args.Name, args.Network)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q", deviceName, networkName)
+			return nil, errors.Wrapf(ErrDeviceNotFound, "device %q network %q", args.Name, args.Network)
 		}
 		return nil, errors.WithStack(err)
 	}
-	return a.RefreshInterface(ctx, ifaceLog, endpoint)
+	return a.RefreshInterface(ctx, ifaceLog, args.Endpoint)
 }
 
 func (a *Agent) RefreshInterface(ctx context.Context, iface *store.InterfaceWithLog, endpoint string) (*store.Interface, error) {

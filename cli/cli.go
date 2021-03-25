@@ -54,8 +54,9 @@ var CommandLine = cli.App{
 		Name: "up",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name"},
-			&cli.StringFlag{Name: "network"},
+			&cli.StringFlag{Name: "network", Aliases: []string{"net"}},
 			&cli.StringFlag{Name: "endpoint"},
+			&cli.StringFlag{Name: "address", Aliases: []string{"addr"}},
 		},
 		Action: func(c *cli.Context) error {
 			if endpoint := c.String("endpoint"); endpoint != "" {
@@ -73,7 +74,12 @@ var CommandLine = cli.App{
 				return errors.WithStack(err)
 			}
 			ctx := NewLoggerContext(c)
-			iface, err := a.JoinDevice(agent.WithToken(ctx, token), c.String("name"), c.String("network"), c.String("endpoint"))
+			iface, err := a.JoinDevice(agent.WithToken(ctx, token), agent.JoinArgs{
+				Name:     c.String("name"),
+				Network:  c.String("network"),
+				Endpoint: c.String("endpoint"),
+				Address:  c.String("address"),
+			})
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -91,7 +97,7 @@ var CommandLine = cli.App{
 		Name: "down",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name"},
-			&cli.StringFlag{Name: "network"},
+			&cli.StringFlag{Name: "network", Aliases: []string{"net"}},
 		},
 		Action: func(c *cli.Context) error {
 			a, err := agent.New(c.Path("datadir"), c.String("url"), agent.NotifyWatcher)
@@ -116,7 +122,7 @@ var CommandLine = cli.App{
 		Name: "refresh",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name"},
-			&cli.StringFlag{Name: "network"},
+			&cli.StringFlag{Name: "network", Aliases: []string{"net"}},
 			&cli.StringFlag{Name: "endpoint"},
 		},
 		Action: func(c *cli.Context) error {
@@ -174,7 +180,11 @@ var CommandLine = cli.App{
 				}
 				return lastErr
 			}
-			iface, err := a.RefreshDevice(ctx, c.String("name"), c.String("network"), c.String("endpoint"))
+			iface, err := a.RefreshDevice(ctx, agent.JoinArgs{
+				Name:     c.String("name"),
+				Network:  c.String("network"),
+				Endpoint: c.String("endpoint"),
+			})
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -234,7 +244,9 @@ var CommandLine = cli.App{
 				merr = append(merr, err)
 				fmt.Println(daemon.FailedServiceNotice)
 			}
-			fmt.Println("There were errors during the installation:")
+			if len(merr) > 0 {
+				fmt.Println("There were errors during the installation:")
+			}
 			return multierr.Combine(merr...)
 		},
 	}, {

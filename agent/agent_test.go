@@ -43,7 +43,7 @@ func TestJoinApply(t *testing.T) {
 		},
 	}, &mockNetworkManager{})
 	ctx := testContext()
-	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	iface, err := a.JoinDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface, qt.DeepEquals, &store.Interface{
 		ApiUrl: "https://wiregarden.io/api",
@@ -79,7 +79,7 @@ func TestJoinApply(t *testing.T) {
 	c.Assert(ifaceLog.Log.Dirty, qt.Equals, false)
 
 	// Subsequent join is rejected with "already joined" error.
-	_, err = a.JoinDevice(ctx, "test-device", "test-net", "")
+	_, err = a.JoinDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.ErrorMatches, `.*already joined.*`)
 	// No change in interface state from rejected join attempt.
 	ifaceLog2, err := st.LastLogByDevice("test-device", "test-net")
@@ -128,14 +128,14 @@ func TestJoinRefreshDepart(t *testing.T) {
 		},
 	}, &mockNetworkManager{})
 	ctx := testContext()
-	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	iface, err := a.JoinDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Peers, qt.HasLen, 0)
 	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
 
 	// Refresh will apply pending operations
-	iface2, err := a.RefreshDevice(ctx, "test-device", "test-net", "")
+	iface2, err := a.RefreshDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Id, qt.Equals, iface2.Id)
 	c.Assert(iface.Network, qt.DeepEquals, iface2.Network)
@@ -192,14 +192,14 @@ func TestJoinRefreshRevoked(t *testing.T) {
 		refreshErr: api.ErrApiRevoked,
 	}, &mockNetworkManager{})
 	ctx := testContext()
-	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	iface, err := a.JoinDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Peers, qt.HasLen, 0)
 	ifaceLog, err := st.LastLogByDevice("test-device", "test-net")
 	c.Assert(err, qt.IsNil)
 
 	// Refresh discovers we've been kicked
-	iface2, err := a.RefreshDevice(ctx, "test-device", "test-net", "")
+	iface2, err := a.RefreshDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Id, qt.Equals, iface2.Id)
 	c.Assert(iface.Network, qt.DeepEquals, iface2.Network)
@@ -269,7 +269,7 @@ func TestRefreshEndpoint(t *testing.T) {
 		},
 	}, &mockNetworkManager{})
 	ctx := testContext()
-	iface, err := a.JoinDevice(ctx, "test-device", "test-net", "")
+	iface, err := a.JoinDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net"})
 	c.Assert(err, qt.IsNil)
 	c.Assert(iface.Peers, qt.HasLen, 0)
 	c.Assert(iface.Device.Endpoint, qt.Equals, "")
@@ -277,7 +277,7 @@ func TestRefreshEndpoint(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 
 	// Refresh with new endpoint
-	_, err = a.RefreshDevice(ctx, "test-device", "test-net", "10.20.30.40:50607")
+	_, err = a.RefreshDevice(ctx, agent.JoinArgs{Name: "test-device", Network: "test-net", Endpoint: "10.20.30.40:50607"})
 	c.Assert(err, qt.IsNil)
 }
 

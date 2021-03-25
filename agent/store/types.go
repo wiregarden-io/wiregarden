@@ -40,6 +40,8 @@ func (iface *Interface) Name() string {
 	return fmt.Sprintf("wgn%03d", iface.Id)
 }
 
+const defaultMTUSize = 1280
+
 func (iface *Interface) Config() *wireguard.InterfaceConfig {
 	isServer := iface.Device.Endpoint != ""
 	var postUp string
@@ -53,6 +55,7 @@ func (iface *Interface) Config() *wireguard.InterfaceConfig {
 		PrivateKey: iface.Key,
 		PostUp:     postUp,
 		Peers:      peersModel(iface.Peers).Config(&iface.Network, iface.Device.Endpoint != ""),
+		MTU:        defaultMTUSize,
 	}
 }
 
