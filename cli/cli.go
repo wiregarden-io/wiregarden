@@ -235,7 +235,7 @@ var CommandLine = cli.App{
 				err = setup.EnsureNssPluginInstalled(ctx)
 				if errors.Is(err, setup.ErrUnsupportedPlatform) {
 					fmt.Println(setup.ManualNssInstructions)
-				} else {
+				} else if err != nil {
 					merr = append(merr, err)
 				}
 			}
